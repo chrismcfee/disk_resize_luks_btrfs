@@ -9,23 +9,44 @@
       private: yes
 
   tasks:
-
+   # # TASK 2: Configure crypttab correctly for all partitions
+  #  - name: Ensure correct crypttab entries
+  #    blockinfile:
+  #      path: /etc/crypttab
+  #      block: |
+   #       sda3_crypt UUID={{ uuid_results.results[0].stdout }} none luks,discard
+   #       nvme0n1p8_crypt UUID={{ uuid_results.results[1].stdout }} none luks
+  #      marker: "# {mark} ANSIBLE MANAGED BLOCK FOR ENCRYPTED PARTITIONS"
+  #      create: yes
+#       backup: yes
     # Explicit TASK 1 (crypttab & initramfs MUST HAPPEN FIRST):
-    - name: Explicitly add/update crypttab for nvme0n1p4 & update initramfs explicitly clearly
+    # TASK 1: Get all required UUIDs
+    - name: Get UUIDs for all encrypted partitions
+      command: "blkid -s UUID -o value {{ item }}"
+      register: uuid_results
+      with_items:
+        - /dev/sda3
+        - /dev/nvme0n1p8
+      changed_when: false
+   # TASK 2: Configure crypttab correctly for all partitions
+    - name: Ensure correct crypttab entries
+      blockinfile:
+        path: /etc/crypttab
+        block: |
+          sda3_crypt UUID={{ uuid_results.results[0].stdout }} none luks,discard
+          nvme0n1p8_crypt UUID={{ uuid_results.results[1].stdout }} none luks
+        marker: "# {mark} ANSIBLE MANAGED BLOCK FOR ENCRYPTED PARTITIONS"
+        create: yes
+        backup: yes
+    # TASK 4: Bind to TPM
+    - name: Bind LUKS to TPM
       shell: |
-        set -e
-        UUID=$(blkid -s UUID -o value /dev/nvme0n1p4)
-        [ -n "$UUID" ] || { echo "Couldn't explicitly find UUID of nvme0n1p4"; exit 1; }
-
-        ENTRY="nvme0n1p4_crypt UUID=$UUID none luks,keyscript=/usr/bin/clevis-decrypt-tpm2"
-        grep -q "^nvme0n1p4_crypt" /etc/crypttab && \
-          sed -i "s#^nvme0n1p4_crypt.*#$ENTRY#" /etc/crypttab || \
-          echo "$ENTRY" >> /etc/crypttab
-
-        echo "[Explicitly] Updating initramfs explicitly after crypttab modification."
-        update-initramfs -u -k all
+        clevis luks bind -f -d /dev/sda3 tpm2 '{"pcr_bank":"sha256","pcr_ids":"0,1,2,3,4,5,7"}' <<< "{{ luks_passphrase }}"
       args:
         executable: /bin/bash
+    # TASK 5: Update initramfs
+    - name: Update initramfs
+      command: update-initramfs -u -k all
 
     # Explicit TASK 2 (Package-install & Clevis TPM bind after crypttab fix)
     - name: Explicitly install packages and bind LUKS to TPM explicitly
