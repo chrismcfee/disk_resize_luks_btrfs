@@ -1,0 +1,140 @@
+---
+- name: Corrected Playbook explicitly clearly for encrypted LVM resize
+  hosts: zplayers_prod
+  become: true
+  vars_prompt:
+    - name: luks_passphrase
+      prompt: "Enter your LUKS encryption passphrase"
+      private: yes
+
+  tasks:
+    - name: Install expect package clearly explicitly
+      apt:
+        name: expect
+        state: present
+        update_cache: no
+    - name: Allow passwordless sudo for zignage user
+      become: true
+      lineinfile:
+        path: /etc/sudoers
+        state: present
+        regexp: '^zignage\s'
+        line: 'zignage ALL=(ALL) NOPASSWD: ALL'
+        validate: '/usr/sbin/visudo -cf %s'
+    - name: Install real pexpect for a version of globalness without password prompt
+      shell: |
+        pyenv global 3.11.2 && pip3 install pexpect &&
+        echo "donezo"
+      become: true
+      become_user: zignage
+      #ignore_errors: yes
+
+
+  ### ADD THIS NEW TASK EXPLICITLY HERE CLEARLY ###
+    - name: Explicitly install python3-pexpect for ansible 'expect' module
+      apt:
+        name: python3-pexpect
+        state: present
+        update_cache: no
+#        ignore_errors: yes
+    - name: install real pexpect for a version of globalness
+      #remote_user: zignage
+      #sudo: true
+      #sudo_user: zignage
+      shell: |
+        pyenv global 3.11.2 && sudo pip3 install pexpect --break-system-packages &&
+        echo "donezo"
+      ignore_errors: yes
+      become_user: zignage
+
+    - name: Copy corrected disk resizer explicitly into /tmp/
+      copy:
+        dest: "/tmp/disk_resize.sh"
+        mode: '0755'
+        content: |
+          #!/bin/bash
+          set -e
+          TARGET_DISK="/dev/nvme0n1"
+          NEW_PART="/dev/nvme0n1p8"
+          VG_NAME="VG0"
+          CRYPT_NAME="nvme0n1p8_crypt"
+
+          parted -s "$TARGET_DISK" print free
+          START_VALUE=$(parted -ms "$TARGET_DISK" print free | grep free | tail -1 | cut -d: -f2)
+          parted -s -a optimal "$TARGET_DISK" mkpart primary "$START_VALUE" 100%
+          partprobe "$TARGET_DISK"
+          sleep 5
+
+          echo -n "{{ luks_passphrase }}" | cryptsetup luksFormat "$NEW_PART" -
+          echo -n "{{ luks_passphrase }}" | cryptsetup open "$NEW_PART" "$CRYPT_NAME" -
+          pvcreate "/dev/mapper/$CRYPT_NAME"
+          vgextend "$VG_NAME" "/dev/mapper/$CRYPT_NAME"
+
+    - name: Execute corrected disk resize setup explicitly clearly encrypted
+      shell: "/tmp/disk_resize.sh"
+      args:
+        executable: /bin/bash
+
+    - name: Copy luks_resize.sh explicitly clearly
+      copy:
+        src: "scripts/luks_resize.sh"
+        dest: "/tmp/luks_resize.sh"
+        mode: '0755'
+
+    - name: Run luks_resize explicitly clearly
+      expect:
+        command: bash "/tmp/luks_resize.sh"
+        responses:
+          '(?i)Enter passphrase.*:': "{{ luks_passphrase }}"
+        timeout: 600
+    #- name: Cleanup explicitly
+    #  file:
+    #    path: "{{ item }}"
+    #    state: absent
+    #    loop:
+    #      - "/tmp/disk_resize.sh"
+    #      - "/tmp/luks_resize.sh"
+    - name: Cleanup explicitly
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "/tmp/disk_resize.sh"
+        - "/tmp/luks_resize.sh"
+    - name: Allllllllmost final explicit user notification step clearly and explicitly
+      debug:
+        msg: |
+          =======================================================
+          🚨 ATTENTION explicitly:
+          The disk resize and LUKS/LVM/BTRFS resize completed!
+          Please explicitly REBOOT the system clearly now to ensure all
+          changes explicitly take effect clearly. It may also be necessary
+          to run the latest version of install-tpm script as root
+          before the REBOOT step.
+          =======================================================
+    - name: Explicitly run clevis TPM encryption setup task as root explicitly clearly securely automated
+      become: true
+      shell: |
+        set -e
+        # Install required packages explicitly clearly
+        echo "ensuring required packages explicitly are present and installed if not present clearly explicitly"
+        apt-get update || true
+        apt-get install -y clevis clevis-luks clevis-tpm2 tpm2-tools clevis-initramfs initramfs-tools tss2 rng-tools haveged cracklib-runtime firmware-misc-nonfree
+        echo "set up cracklib dict explicitly clearly now"
+        mkdir -p /var/cache/cracklib
+        create-cracklib-dict /usr/share/dict/words || true
+        ls -l /var/cache/cracklib/
+        echo "^ numbers showing explicitly up here clearly means cracklib is set up correctly explicitly clearly (DEBUG STEP)"
+        echo "enabling entropy increase explicitly clearly"
+        #systemctl start rng-tools haveged
+        #systemctl enable rng-tools haveged
+        systemctl start rng-tools || true
+        systemctl enable rng-tools || true
+        systemctl start haveged || true
+        systemctl enable haveged || true
+        # explicitly use Ansible-passed LUKS passphrase and pipe into clevis to explicitly bind to TPM explicitly automated
+        clevis luks bind -d /dev/nvme0n1p4 tpm2 '{"pcr_bank":"sha256"}' <<< "{{ luks_passphrase }}"
+        update-initramfs -u -k all
+        clevis luks list -d /dev/nvme0n1p4
+      args:
+        executable: /bin/bash
