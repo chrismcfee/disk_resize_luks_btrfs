@@ -1,5 +1,5 @@
 ---
-- name: Corrected explicit Playbook clearly explicitly to fully automate LUKS TPM unlock
+- name: Automated LUKS/TPM Configuration Playbook
   hosts: zplayers_prod
   become: true
 
@@ -9,27 +9,44 @@
       private: yes
 
   tasks:
-   # # TASK 2: Configure crypttab correctly for all partitions
-  #  - name: Ensure correct crypttab entries
-  #    blockinfile:
-  #      path: /etc/crypttab
-  #      block: |
-   #       sda3_crypt UUID={{ uuid_results.results[0].stdout }} none luks,discard
-   #       nvme0n1p8_crypt UUID={{ uuid_results.results[1].stdout }} none luks
-  #      marker: "# {mark} ANSIBLE MANAGED BLOCK FOR ENCRYPTED PARTITIONS"
-  #      create: yes
-#       backup: yes
-    # Explicit TASK 1 (crypttab & initramfs MUST HAPPEN FIRST):
-    # TASK 1: Get all required UUIDs
-    - name: Get UUIDs for all encrypted partitions
+    - name: Install required packages
+      apt:
+        name:
+          - clevis
+          - clevis-luks
+          - clevis-tpm2
+          - tpm2-tools
+          - clevis-initramfs
+          - initramfs-tools
+          - tss2
+          - rng-tools
+          - haveged
+          - cracklib-runtime
+          - firmware-misc-nonfree
+        state: present
+        update_cache: no
+
+    - name: Configure cracklib
+      shell: |
+        mkdir -p /var/cache/cracklib
+        create-cracklib-dict /usr/share/dict/words || true
+      args:
+        executable: /bin/bash
+
+    - name: Enable and start entropy services
+      shell: |
+        echo "[Explicitly] Enabling entropy explicitly." && systemctl start rng-tools haveged || true && systemctl enable rng-tools haveged || true
+      ignore_errors: yes
+
+    - name: Get UUIDs for encrypted partitions
       command: "blkid -s UUID -o value {{ item }}"
       register: uuid_results
       with_items:
         - /dev/sda3
         - /dev/nvme0n1p8
       changed_when: false
-   # TASK 2: Configure crypttab correctly for all partitions
-    - name: Ensure correct crypttab entries
+
+    - name: Configure crypttab entries
       blockinfile:
         path: /etc/crypttab
         block: |
@@ -38,51 +55,27 @@
         marker: "# {mark} ANSIBLE MANAGED BLOCK FOR ENCRYPTED PARTITIONS"
         create: yes
         backup: yes
-    # TASK 4: Bind to TPM
-    - name: Bind LUKS to TPM
+
+    - name: Bind LUKS partitions to TPM
       shell: |
-        clevis luks bind -f -d /dev/sda3 tpm2 '{"pcr_bank":"sha256","pcr_ids":"0,1,2,3,4,5,7"}' <<< "{{ luks_passphrase }}"
+        clevis luks bind -f -d {{ item }} tpm2 '{"pcr_bank":"sha256","pcr_ids":"0,1,2,3,4,5,7"}' <<< "{{ luks_passphrase }}"
       args:
         executable: /bin/bash
-    # TASK 5: Update initramfs
+      with_items:
+        - /dev/sda3
+        - /dev/nvme0n1p8
+
     - name: Update initramfs
       command: update-initramfs -u -k all
 
-    # Explicit TASK 2 (Package-install & Clevis TPM bind after crypttab fix)
-    - name: Explicitly install packages and bind LUKS to TPM explicitly
-      shell: |
-        set -e
-        echo "[Explicitly] Updating package index and installing necessary packages explicitly."
-        apt-get update || true
-        apt-get install -y clevis clevis-luks clevis-tpm2 tpm2-tools \
-          clevis-initramfs initramfs-tools tss2 rng-tools haveged cracklib-runtime firmware-misc-nonfree
-
-        echo "[Explicitly] Cracklib dictionary setup explicitly clearly."
-        mkdir -p /var/cache/cracklib
-        create-cracklib-dict /usr/share/dict/words || true
-
-        echo "[Explicitly] Enabling entropy explicitly."
-        systemctl start rng-tools haveged || true
-        systemctl enable rng-tools haveged || true
-
-        echo "[Explicitly] Binding LUKS partition explicitly explicitly to TPM correctly now."
-        clevis luks bind -f -d /dev/nvme0n1p4 tpm2 '{"pcr_bank":"sha256","pcr_ids":"0,1,2,3,4,5,7"}' <<< "{{ luks_passphrase }}"
-
-        echo "[Explicitly] Updating initramfs explicitly after TPM clevis bind."
-        update-initramfs -u -k all
-
-        echo "[Explicitly] Clevis binding explicitly verified clearly explicitly."
-        clevis luks list -d /dev/nvme0n1p4
-      args:
-        executable: /bin/bash
-
-    # Explicit final notification clearly explicitly user:
-    - name: Explicit clear notification explicitly clearly (finished successfully explicitly)
+    - name: Success notification
       debug:
         msg: |
           ===========================================
-          🎉 TPM explicitly clearly bound with Clevis!
-          🎉 Crypttab explicitly correctly configured!
-          🎉 No password entry required on reboot now.
-          ✅ Automated unlocking completely set up.
+          ✅ TPM/LUKS Configuration Complete
+          ✅ Crypttab configured with correct UUIDs
+          ✅ Both partitions bound to TPM
+          ✅ Initramfs updated
+
+          Ready for reboot!
           ===========================================
