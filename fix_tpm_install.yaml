@@ -46,26 +46,21 @@
         - /dev/nvme0n1p8
       changed_when: false
 
-    - name: Configure crypttab entries
-      blockinfile:
-        path: /etc/crypttab
-        block: |
+    - name: Configure crypttab with ONLY the two required entries
+      copy:
+        dest: /etc/crypttab
+        content: |
           sda3_crypt UUID={{ uuid_results.results[0].stdout }} none luks,discard
           nvme0n1p8_crypt UUID={{ uuid_results.results[1].stdout }} none luks
-        marker: "# {mark} ANSIBLE MANAGED BLOCK FOR ENCRYPTED PARTITIONS"
-        create: yes
         backup: yes
 
-    - name: Bind LUKS partitions to TPM
+    - name: Bind LUKS to TPM for sda3
       shell: |
-        clevis luks bind -f -d {{ item }} tpm2 '{"pcr_bank":"sha256","pcr_ids":"0,1,2,3,4,5,7"}' <<< "{{ luks_passphrase }}"
+        clevis luks bind -f -d /dev/sda3 tpm2 '{"pcr_bank":"sha256","pcr_ids":"0,1,2,3,4,5,7"}' <<< "{{ luks_passphrase }}"
       args:
         executable: /bin/bash
-      with_items:
-        - /dev/sda3
-        - /dev/nvme0n1p8
 
-    - name: Update initramfs
+  - name: Update initramfs
       command: update-initramfs -u -k all
 
     - name: Success notification
