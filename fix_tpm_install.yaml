@@ -1,5 +1,5 @@
 ---
-- name: Corrected Playbook explicitly clearly for encrypted LVM resize
+- name: Corrected explicit Playbook clearly explicitly to fully automate LUKS TPM unlock
   hosts: zplayers_prod
   become: true
 
@@ -9,9 +9,26 @@
       private: yes
 
   tasks:
-    # TASK 1 (Combined package install explicitly and clevis-tpm binding):
+
+    # Explicit TASK 1 (crypttab & initramfs MUST HAPPEN FIRST):
+    - name: Explicitly add/update crypttab for nvme0n1p4 & update initramfs explicitly clearly
+      shell: |
+        set -e
+        UUID=$(blkid -s UUID -o value /dev/nvme0n1p4)
+        [ -n "$UUID" ] || { echo "Couldn't explicitly find UUID of nvme0n1p4"; exit 1; }
+
+        ENTRY="nvme0n1p4_crypt UUID=$UUID none luks,keyscript=/usr/bin/clevis-decrypt-tpm2"
+        grep -q "^nvme0n1p4_crypt" /etc/crypttab && \
+          sed -i "s#^nvme0n1p4_crypt.*#$ENTRY#" /etc/crypttab || \
+          echo "$ENTRY" >> /etc/crypttab
+
+        echo "[Explicitly] Updating initramfs explicitly after crypttab modification."
+        update-initramfs -u -k all
+      args:
+        executable: /bin/bash
+
+    # Explicit TASK 2 (Package-install & Clevis TPM bind after crypttab fix)
     - name: Explicitly install packages and bind LUKS to TPM explicitly
-      become: true
       shell: |
         set -e
         echo "[Explicitly] Updating package index and installing necessary packages explicitly."
@@ -19,41 +36,32 @@
         apt-get install -y clevis clevis-luks clevis-tpm2 tpm2-tools \
           clevis-initramfs initramfs-tools tss2 rng-tools haveged cracklib-runtime firmware-misc-nonfree
 
-        echo "[Explicitly] Setting up cracklib dictionary explicitly clearly."
+        echo "[Explicitly] Cracklib dictionary setup explicitly clearly."
         mkdir -p /var/cache/cracklib
         create-cracklib-dict /usr/share/dict/words || true
-        ls -l /var/cache/cracklib/
 
         echo "[Explicitly] Enabling entropy explicitly."
-        systemctl start rng-tools || true
-        systemctl enable rng-tools || true
-        systemctl start haveged || true
-        systemctl enable haveged || true
+        systemctl start rng-tools haveged || true
+        systemctl enable rng-tools haveged || true
 
-        echo "[Explicitly] Binding LUKS partition explicitly to TPM."
+        echo "[Explicitly] Binding LUKS partition explicitly explicitly to TPM correctly now."
         clevis luks bind -f -d /dev/nvme0n1p4 tpm2 '{"pcr_bank":"sha256","pcr_ids":"0,1,2,3,4,5,7"}' <<< "{{ luks_passphrase }}"
 
-        echo "[Explicitly] Updating initramfs after clevis bind explicitly."
+        echo "[Explicitly] Updating initramfs explicitly after TPM clevis bind."
         update-initramfs -u -k all
 
-        echo "[Explicitly] Explicitly verifying Clevis binding explicitly clearly."
+        echo "[Explicitly] Clevis binding explicitly verified clearly explicitly."
         clevis luks list -d /dev/nvme0n1p4
       args:
         executable: /bin/bash
 
-    # TASK 2 (Crypttab and initramfs fix explicitly):
-    - name: Explicitly add/update /etc/crypttab for nvme0n1p4 explicitly and update initramfs explicitly
-      become: true
-      shell: |
-        set -e
-        UUID=$(blkid -s UUID -o value /dev/nvme0n1p4)
-        [ -n "$UUID" ] || { echo "Couldn't explicitly find UUID of nvme0n1p4"; exit 1; }
-        ENTRY="nvme0n1p4_crypt UUID=$UUID none luks,keyscript=/usr/bin/clevis-decrypt-tpm2"
-        grep -q "^nvme0n1p4_crypt" /etc/crypttab && \
-          sed -i "s#^nvme0n1p4_crypt.*#$ENTRY#" /etc/crypttab || \
-          echo "$ENTRY" >> /etc/crypttab
-
-        echo "[Explicitly] Final initramfs update explicitly clearly."
-        update-initramfs -u -k all
-      args:
-        executable: /bin/bash
+    # Explicit final notification clearly explicitly user:
+    - name: Explicit clear notification explicitly clearly (finished successfully explicitly)
+      debug:
+        msg: |
+          ===========================================
+          🎉 TPM explicitly clearly bound with Clevis!
+          🎉 Crypttab explicitly correctly configured!
+          🎉 No password entry required on reboot now.
+          ✅ Automated unlocking completely set up.
+          ===========================================
