@@ -1,0 +1,72 @@
+---
+- name: Corrected Playbook explicitly clearly for encrypted LVM resize
+  hosts: zplayers_prod
+  become: true
+  vars_prompt:
+    - name: luks_passphrase
+      prompt: "Enter your LUKS encryption passphrase"
+      private: yes
+
+  tasks:
+    - name: Explicitly detect UUID of /dev/nvme0n1p4 and explicitly update /etc/crypttab
+      become: true
+      shell: |
+        set -e
+        # Explicitly get the UUID of /dev/nvme0n1p4
+        UUID=$(blkid -s UUID -o value /dev/nvme0n1p4)
+        if [ -z "$UUID" ]; then
+          echo "ERROR explicitly: could not explicitly find UUID of /dev/nvme0n1p4"
+          exit 1
+        fi
+        # Explicitly define the correct crypttab line
+        CRYPTTAB_ENTRY="nvme0n1p4_crypt UUID=$UUID none luks,keyscript=/usr/bin/clevis-decrypt-tpm2"
+
+        # Explicitly ensure the crypttab line isn't already present, add explicitly if not
+        if ! grep -q "^nvme0n1p4_crypt" /etc/crypttab; then
+          echo "$CRYPTTAB_ENTRY" >> /etc/crypttab
+          echo "[INFO] explicitly added new entry into crypttab explicitly clearly."
+        else
+        # explicitly update existing crypttab entry explicitly clearly
+          sed -i "s#^nvme0n1p4_crypt.*#$CRYPTTAB_ENTRY#" /etc/crypttab
+          echo "[INFO] explicitly updated existing entry explicitly clearly."
+        fi
+
+        # Explicitly regenerate initramfs explicitly clearly explicitly
+        update-initramfs -u -k all
+      args:
+        executable: /bin/bash
+    - name: Explicitly add/update /etc/crypttab for nvme0n1p4 explicitly and update initramfs explicitly
+      become: true
+      shell: |
+        set -e
+        UUID=$(blkid -s UUID -o value /dev/nvme0n1p4)
+        [ -n "$UUID" ] || { echo "Couldn't explicitly get UUID"; exit 1; }
+        ENTRY="nvme0n1p4_crypt UUID=$UUID none luks,keyscript=/usr/bin/clevis-decrypt-tpm2"
+        grep -q "^nvme0n1p4_crypt" /etc/crypttab && sed -i "s#^nvme0n1p4_crypt.*#$ENTRY#" /etc/crypttab || echo "$ENTRY" >> /etc/crypttab
+        update-initramfs -u -k all
+      args:
+        executable: /bin/bash
+    - name: Explicitly run clevis TPM encryption clearly explicitly securely automated (explicitly fixed version explicitly)
+      become: true
+      shell: |
+        set -e
+        echo "[Explicitly] Updating and installing required packages explicitly clearly."
+        apt-get update || true
+        apt-get install -y clevis clevis-luks clevis-tpm2 tpm2-tools clevis-initramfs initramfs-tools tss2 rng-tools haveged cracklib-runtime firmware-misc-nonfree
+        echo "[Explicitly] Configuring cracklib explicitly clearly."
+        mkdir -p /var/cache/cracklib
+        create-cracklib-dict /usr/share/dict/words || true
+        ls -l /var/cache/cracklib/
+        echo "[Explicitly] Enabling entropy explicitly clearly."
+        systemctl start rng-tools || true
+        systemctl enable rng-tools || true
+        systemctl start haveged || true
+        systemctl enable haveged || true
+        echo "[Explicitly] Binding LUKS to TPM explicitly with exact PCR settings explicitly clearly explicitly."
+        clevis luks bind -d /dev/nvme0n1p4 tpm2 '{"pcr_bank":"sha256","pcr_ids":"0,1,2,3,4,5,7"}' <<< "{{ luks_passphrase }}"
+        echo "[Explicitly] Updating initramfs explicitly clearly explicitly."
+        update-initramfs -u -k all
+        echo "[Explicitly] Verifying clevis bindings explicitly clearly clearly."
+        clevis luks list -d /dev/nvme0n1p4
+      args:
+        executable: /bin/bash
