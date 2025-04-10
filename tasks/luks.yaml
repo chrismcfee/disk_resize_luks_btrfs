@@ -7,19 +7,20 @@
 
 - name: Format LUKS container if unformatted
   shell: |
-    echo -n "{{ luks_passphrase }}" | sudo cryptsetup luksFormat /dev/nvme0n1p8 -
+    echo -n "{{ luks_passphrase }}" | cryptsetup luksFormat /dev/nvme0n1p8 -
   args:
     executable: /bin/bash
-  when: luks_check.rc != 0
+  when: luks_check.rc != 0  # Ensure this runs when NOT LUKS-formatted
 
 - name: Check if LUKS container is open
   stat:
     path: /dev/mapper/nvme_crypt
   register: luks_open_check
 
-- name: Open LUKS container if closed
-  shell: |
-    echo -n "{{ luks_passphrase }}" | sudo cryptsetup open /dev/nvme0n1p8 nvme_crypt -
-  args:
-    executable: /bin/bash
-  when: not luks_open_check.stat.exists
+- name: Open LUKS container
+  community.crypto.luks_device:
+    device: /dev/nvme0n1p8
+    state: opened
+    passphrase: "{{ luks_passphrase }}"
+    name: nvme_crypt
+
