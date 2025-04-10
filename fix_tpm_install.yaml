@@ -83,7 +83,7 @@
     - name: Show raw output
       debug:
         msg: "{{ luks_info.stdout_lines }}"
-
+        
     - name: Check if devices exist
       stat:
         path: "{{ item }}"
@@ -96,7 +96,6 @@
       fail:
         msg: "Required devices not found"
       when: not device_check.results[0].stat.exists or not device_check.results[1].stat.exists
-
     - name: Configure crypttab with correct entries
       copy:
         dest: /etc/crypttab
