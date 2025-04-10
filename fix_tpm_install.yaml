@@ -58,6 +58,19 @@
       debug:
         msg: "{{ luks_info.stdout_lines }}"
 
+    - name: Check if devices exist
+      stat:
+        path: "{{ item }}"
+      register: device_check
+      with_items:
+        - /dev/sda3
+        - /dev/nvme0n1p8
+
+    - name: Fail if devices don't exist
+      fail:
+        msg: "Required devices not found"
+      when: not device_check.results[0].stat.exists or not device_check.results[1].stat.exists
+
     - name: Extract UUIDs
       set_fact:
         sda3_uuid: "{{ luks_info.stdout_lines[1] }}"
@@ -72,6 +85,7 @@
           nvme0n1p8_crypt UUID={{ nvme_uuid }} none luks
         backup: yes
       when: sda3_uuid is defined and nvme_uuid is defined
+      failed_when: (sda3_uuid is not defined) or (nvme_uuid is not defined)
 
     - name: Bind LUKS partitions to TPM
       shell: |
@@ -81,6 +95,7 @@
       with_items:
         - /dev/sda3
         - /dev/nvme0n1p8
+      no_log: true  # Add this line
 
     - name: Update initramfs
       command: update-initramfs -u -k all
