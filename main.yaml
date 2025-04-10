@@ -87,13 +87,17 @@
         owner: root
         group: root
         mode: '0644'
-
-
+    
+    - name: Reload systemd daemon  # REQUIRED FOR NEW SERVICES
+      ansible.builtin.systemd:
+        daemon_reload: yes
+    
     - name: Enable cryptresize service
       ansible.builtin.systemd:
         name: cryptresize.service
         enabled: yes
         state: started
+
 
 
     # Final Verification
