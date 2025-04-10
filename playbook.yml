@@ -72,10 +72,12 @@
             passphrase: "{{ luks_passphrase }}"
             type: luks2
             cipher: aes-xts-plain64
-            key_size: 512
+            keysize: 512  # Correct parameter name
             hash: sha256
-          when: luks_check.rc != 0
-
+            pbkdf: argon2id
+            sector_size: 4096
+            perf_no_read_workqueue: true
+            perf_no_write_workqueue: true
         - name: Open LUKS container
           community.crypto.luks_device:
             device: /dev/nvme0n1p8
