@@ -56,6 +56,7 @@
       args:
         executable: /bin/bash
       when: luks_check.rc != 0
+      ignore_errors: yes
 
     # Step 4: Open LUKS container (ensure it's accessible)
     - name: Check if LUKS container is open (mapper exists)
