@@ -1,5 +1,8 @@
 - name: Check LUKS container on /dev/nvme0n1p8
-  command: sudo cryptsetup isLuks /dev/nvme0n1p8 || true
+  shell: |
+    cryptsetup isLuks /dev/nvme0n1p8 || true
+  args:
+    executable: /bin/bash
   register: luks_check
 
 - name: Format LUKS container if unformatted
