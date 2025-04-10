@@ -9,6 +9,11 @@
     executable: /bin/bash
   when: luks_check.rc != 0
 
+- name: Check if LUKS container is open (mapper exists)
+  stat:
+    path: /dev/mapper/nvme_crypt
+  register: luks_open_check
+
 - name: Open LUKS container if closed
   shell: |
     echo -n "{{ luks_passphrase }}" | cryptsetup open /dev/nvme0n1p8 nvme_crypt -
