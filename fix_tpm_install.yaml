@@ -9,6 +9,35 @@
       private: yes
 
   tasks:
+    - name: Check encrypted partition details
+      shell: |
+        # First check if /dev/sda3 is a LUKS partition
+        if cryptsetup isLuks /dev/sda3; then
+          echo "LUKS_FOUND=yes"
+          # Get the mapped name if it exists
+          MAPPED_NAME=$(lsblk /dev/sda3 -ln -o NAME | grep crypt || echo "")
+          if [ -n "$MAPPED_NAME" ]; then
+            echo "MAPPED_NAME=$MAPPED_NAME"
+          fi
+          # Get the UUID
+          UUID=$(cryptsetup luksUUID /dev/sda3)
+          echo "UUID=$UUID"
+        else
+          echo "LUKS_FOUND=no"
+        fi
+
+        # Get nvme0n1p8 UUID too
+        if cryptsetup isLuks /dev/nvme0n1p8; then
+          NVME_UUID=$(cryptsetup luksUUID /dev/nvme0n1p8)
+          echo "NVME_UUID=$NVME_UUID"
+        fi
+      register: luks_info
+      changed_when: false
+
+    - name: Show what was found
+      debug:
+        msg: "{{ luks_info.stdout_lines }}"
+
     - name: Install required packages
       apt:
         name:
@@ -38,20 +67,12 @@
         echo "[Explicitly] Enabling entropy explicitly." && systemctl start rng-tools haveged || true && systemctl enable rng-tools haveged || true
       ignore_errors: yes
 
-    - name: Get UUIDs for encrypted partitions
-      command: "blkid -s UUID -o value {{ item }}"
-      register: uuid_results
-      with_items:
-        - /dev/sda3
-        - /dev/nvme0n1p8
-      changed_when: false
-
-    - name: Configure crypttab with ONLY the two required entries
+    - name: Configure crypttab with correct entries
       copy:
         dest: /etc/crypttab
         content: |
-          sda3_crypt UUID={{ uuid_results.results[0].stdout }} none luks,discard
-          nvme0n1p8_crypt UUID={{ uuid_results.results[1].stdout }} none luks
+          sda3_crypt UUID={{ luks_info.stdout | regex_search('UUID=([^\n]+)', '\\1') | first }} none luks,discard
+          nvme0n1p8_crypt UUID={{ luks_info.stdout | regex_search('NVME_UUID=([^\n]+)', '\\1') | first }} none luks
         backup: yes
 
     - name: Bind LUKS to TPM for sda3
@@ -59,6 +80,7 @@
         clevis luks bind -f -d /dev/sda3 tpm2 '{"pcr_bank":"sha256","pcr_ids":"0,1,2,3,4,5,7"}' <<< "{{ luks_passphrase }}"
       args:
         executable: /bin/bash
+
     - name: Update initramfs
       command: update-initramfs -u -k all
 
