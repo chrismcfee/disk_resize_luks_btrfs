@@ -1,30 +1,63 @@
-- name: Verify root filesystem
-  shell: df -h /
+- name: Get LUKS UUID for verification
+  command: blkid -s UUID -o value /dev/nvme0n1p8
+  register: luks_uuid
+  when: "'luks_uuid' not in vars or luks_uuid.stdout == ''"
+  changed_when: false
+
+- name: Verify root filesystem capacity
+  shell: df -h / | awk 'NR==2 {print $2,$3,$4,$5}'
   register: df_output
+  changed_when: false
 
-- name: Verify physical volumes
-  shell: pvs --noheadings --output pv_name,vg_name,size,free --units m | column -t
-  register: pvs_output
+- name: Verify physical volume allocation
+  shell: pvs --units g --noheadings --options pv_name,vg_name,size,free /dev/nvme0n1p8
+  register: pv_check
+  changed_when: false
 
-- name: Verify volume groups
-  shell: vgs --noheadings --output vg_name,size,free --units m | column -t
-  register: vgs_output
+- name: Verify volume group utilization
+  shell: vgs --units g --noheadings --options vg_name,size,free VG0
+  register: vg_check
+  changed_when: false
 
-- name: Verify logical volumes
-  shell: lvdisplay /dev/VG0/LG0 | grep Size | column -t
-  register: lvdisplay_output
+- name: Verify logical volume size
+  shell: lvs --units g --noheadings --options lv_size VG0/LG0
+  register: lv_check
+  changed_when: false
 
-- name: Verify LUKS UUID in crypttab
+- name: Verify Btrfs filesystem allocation (if applicable)
+  shell: |
+    if [ "$(df -T / | awk 'NR==2 {print $2}')" = "btrfs" ]; then
+      btrfs filesystem usage /
+    else
+      echo "Not a Btrfs filesystem"
+    fi
+  register: btrfs_check
+  changed_when: false
+
+- name: Ensure crypttab contains correct LUKS entry
   lineinfile:
     path: /etc/crypttab
     regexp: "^nvme_crypt"
     line: "nvme_crypt UUID={{ luks_uuid.stdout }} none luks,discard"
     state: present
+  when: luks_uuid.stdout != ""
 
 - name: Show verification results
   debug:
-    msg:
-      - "Root Filesystem Usage:\n{{ df_output.stdout }}"
-      - "Physical Volumes:\n{{ pvs_output.stdout }}"
-      - "Volume Groups:\n{{ vgs_output.stdout }}"
-      - "Logical Volume Details:\n{{ lvdisplay_output.stdout }}"
+    msg: |
+      ROOT FILESYSTEM:
+      {{ df_output.stdout }}
+
+      PHYSICAL VOLUME (nvme0n1p8):
+      {{ pv_check.stdout }}
+
+      VOLUME GROUP (VG0):
+      {{ vg_check.stdout }}
+
+      LOGICAL VOLUME (LG0):
+      {{ lv_check.stdout }}
+
+      {% if btrfs_check.stdout != "Not a Btrfs filesystem" %}
+      BTRFS USAGE:
+      {{ btrfs_check.stdout }}
+      {% endif %}
