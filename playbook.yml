@@ -65,19 +65,20 @@
           register: luks_check
           failed_when: false
 
-        - name: Create LUKS container
+        - name: Create LUKS container (LUKS2 with secure defaults)
           community.crypto.luks_device:
             device: /dev/nvme0n1p8
             state: present
             passphrase: "{{ luks_passphrase }}"
             type: luks2
             cipher: aes-xts-plain64
-            keysize: 512  # Correct parameter name
+            keysize: 512
             hash: sha256
-            pbkdf: argon2id
-            sector_size: 4096
-            perf_no_read_workqueue: true
-            perf_no_write_workqueue: true
+            pbkdf: argon2i
+            pbkdf_parameters:
+              iterations: 40000
+              memory: 1048576  # 1GB
+              parallel: 4
         - name: Open LUKS container
           community.crypto.luks_device:
             device: /dev/nvme0n1p8
