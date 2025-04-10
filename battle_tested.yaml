@@ -63,53 +63,73 @@
 
     # Step 4a (LUKS): Check if LUKS container exists on /dev/nvme0n1p8.
     - name: Check if LUKS container exists on /dev/nvme0n1p8.
-      command: sudo cryptsetup isLuks /dev/nvme0n1p8 || true 
+      command: cryptsetup isLuks /dev/nvme0n1p8 || true 
+      register: luks_check
 
-    - name: Open LUKS container if not already open
+    # Step 4b (LUKS): Format LUKS container if not already formatted.
+    - name: Format LUKS container if not already formatted.
       shell: |
-        echo -n "{{ luks_passphrase }}" | sudo cryptsetup open /dev/nvme0n1p8 nvme_crypt -
+        echo -n "{{ luks_passphrase }}" | cryptsetup luksFormat /dev/nvme0n1p8 -
+      args:
+        executable: /bin/bash
+      when: luks_check.rc != 0
+
+    # Step 4c (LUKS): Open LUKS container (ensure it's accessible).
+    - name: Check if LUKS container is open (mapper exists).
+      stat:
+        path: /dev/mapper/nvme_crypt
+      register: luks_open_check
+
+    - name: Open LUKS container if not already open.
+      shell: |
+        echo -n "{{ luks_passphrase }}" | cryptsetup open /dev/nvme0n1p8 nvme_crypt -
       args:
         executable: /bin/bash
       when: not luks_open_check.stat.exists
 
-    # Step 5: LVM operations (PV, VG, LV resizing)
-    - name: Check if physical volume exists on /dev/mapper/nvme_crypt
+    # Step 5a (LVM): Check if physical volume exists on /dev/mapper/nvme_crypt.
+    - name: Check if physical volume exists on /dev/mapper/nvme_crypt.
       command: pvs /dev/mapper/nvme_crypt --noheadings --quiet --output pv_name
       register: pv_check
       failed_when: false
 
-    - name: Create physical volume if missing on /dev/mapper/nvme_crypt
+    # Step 5b (LVM): Create physical volume if missing on /dev/mapper/nvme_crypt.
+    - name: Create physical volume if missing on /dev/mapper/nvme_crypt.
       command: pvcreate /dev/mapper/nvme_crypt
       when: pv_check.stdout == ""
 
-    - name: Extend volume group VG0 to include new physical volume
+    # Step 5c (LVM): Extend volume group VG0 to include new physical volume.
+    - name: Extend volume group VG0 to include new physical volume.
       command: vgextend VG0 /dev/mapper/nvme_crypt
 
-    - name: Extend logical volume LG0 to use all free space in VG0
+    # Step 5d (LVM): Extend logical volume LG0 to use all free space in VG0.
+    - name: Extend logical volume LG0 to use all free space in VG0.
       command: lvextend -l +100%FREE /dev/VG0/LG0
 
-    # Step 6: Resize filesystem (ext4 or Btrfs)
-    - name: Resize ext4 filesystem on logical volume LG0 (if applicable)
+    # Step 6a (Filesystem): Resize ext4 filesystem on logical volume LG0 (if applicable).
+    - name: Resize ext4 filesystem on logical volume LG0 (if applicable).
       command: resize2fs /dev/mapper/VG0-LG0 || true
 
-    # Step 7 (Optional): TPM binding for automatic unlocking with Clevis TPM2 module.
-    - name: Check existing TPM binding for LUKS container on /dev/nvme0n1p8
+    # Step 7a (TPM Binding): Check existing TPM binding for LUKS container on /dev/nvme0n1p8.
+    - name: Check existing TPM binding for LUKS container on /dev/nvme0n1p8.
       command: clevis luks list -d /dev/nvme0n1p8 | grep "tpm2"
       register: tpm_binding_check
       failed_when: false
 
-    - name: Bind LUKS container to TPM if not already bound (idempotent)
+    # Step 7b (TPM Binding): Bind LUKS container to TPM if not already bound (idempotent).
+    - name: Bind LUKS container to TPM if not already bound (idempotent).
       shell: |
         clevis luks bind -d /dev/nvme0n1p8 tpm2 '{"pcr_bank":"sha256","pcr_ids":"0,7"}' <<< "{{ luks_passphrase }}"
       args:
         executable: /bin/bash
       when: tpm_binding_check.rc != 0
 
-    # Step 8 (Optional): Update crypttab and initramfs for persistent unlocking.
-    - name: Get UUID of LUKS container on /dev/nvme0n1p8 for crypttab entry
+    # Step 8a (Crypttab): Get UUID of LUKS container on /dev/nvme0n1p8 for crypttab entry.
+    - name: Get UUID of LUKS container on /dev/nvme0n1p8 for crypttab entry.
       command: blkid -s UUID -o value /dev/nvme0n1p8
       register: luks_uuid
 
+    # Step 8b (Crypttab): Update crypttab with LUKS UUID for persistent unlocking via TPM2/Clevis keyscript.
     - name: Update crypttab with LUKS UUID for persistent unlocking via TPM2/Clevis keyscript.
       lineinfile:
         path: /etc/crypttab
@@ -117,9 +137,11 @@
         regexp: "^nvme_crypt"
         state: present
 
-    # Step 9 (Optional): Update initramfs to reflect changes in crypttab.
+    # Step 9a (Initramfs): Update initramfs to persist changes in crypttab configuration.
     - name: Update initramfs to persist changes in crypttab configuration.
       command: update-initramfs -u -k all
+
+
 
     - name: Reboot system after partition creation
       reboot:
