@@ -1,4 +1,4 @@
-- name: Check if LUKS container exists on /dev/nvme0n1p8
+- name: Check if LUKS container exists
   shell: |
     cryptsetup isLuks /dev/nvme0n1p8 || true
   args:
@@ -10,16 +10,17 @@
     echo -n "{{ luks_passphrase }}" | cryptsetup luksFormat /dev/nvme0n1p8 -
   args:
     executable: /bin/bash
-  when: luks_check.rc != 0  # Ensure this runs when NOT LUKS-formatted
+  when: luks_check.rc != 0
 
-- name: Open LUKS container
+- name: Configure LUKS container
   block:
-    - name: Ensure LUKS container exists
+    - name: Ensure LUKS container exists (LUKS2)
       community.crypto.luks_device:
         device: /dev/nvme0n1p8
         state: present
-        passphrase: "{{ luks_passphrase }}"
+        type: luks2
         label: nvme_crypt
+        passphrase: "{{ luks_passphrase }}"
         keysize: 512
         cipher: aes-xts-plain64
         hash: sha256
@@ -34,6 +35,4 @@
         name: nvme_crypt
         persistent: yes
         allow_discards: yes
-      when:
-        - luks_create.changed or not ansible_facts.luks.nvme_crypt.active
-
+      when: luks_create.changed or not ansible_facts.luks.nvme_crypt.active
