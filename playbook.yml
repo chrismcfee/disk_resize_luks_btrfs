@@ -1,95 +1,84 @@
 ---
-- name: Corrected Playbook explicitly clearly for encrypted LVM resize
+- name: Reliable LUKS/LVM Management Playbook
   hosts: zplayers_prod
   become: true
   vars_prompt:
     - name: luks_passphrase
-      prompt: "Enter your LUKS encryption passphrase"
+      prompt: "Enter LUKS encryption passphrase"
       private: yes
 
   tasks:
-    - name: Install expect package clearly explicitly
+    - name: Install required packages
       apt:
-        name: expect
-        state: present
-        update_cache: no
-    - name: Allow passwordless sudo for zignage user
-      become: true
-      lineinfile:
-        path: /etc/sudoers
-        state: present
-        regexp: '^zignage\s'
-        line: 'zignage ALL=(ALL) NOPASSWD: ALL'
-        validate: '/usr/sbin/visudo -cf %s'
-    - name: Install real pexpect for a version of globalness without password prompt
-      shell: |
-        pyenv global 3.11.2 && pip3 install pexpect &&
-        echo "donezo"
-      become: true
-      become_user: zignage
-      #ignore_errors: yes
+        name:
+          - cryptsetup
+          - lvm2
+          - parted
+          - initramfs-tools
+          - clevis
+          - clevis-tpm2
+        update_cache: yes  # Crucial for package availability
 
+    - name: Check existing partition
+      stat:
+        path: /dev/nvme0n1p8
+      register: partition_check
 
-  ### ADD THIS NEW TASK EXPLICITLY HERE CLEARLY ###
-    - name: Explicitly install python3-pexpect for ansible 'expect' module
-      apt:
-        name: python3-pexpect
+    - name: Create partition if missing
+      parted:
+        device: /dev/nvme0n1
+        number: 8
         state: present
-        update_cache: no
-#        ignore_errors: yes
-    - name: install real pexpect for a version of globalness
-      #remote_user: zignage
-      #sudo: true
-      #sudo_user: zignage
-      shell: |
-        pyenv global 3.11.2 && sudo pip3 install pexpect --break-system-packages &&
-        echo "donezo"
-      ignore_errors: yes
-      become_user: zignage
+        part_start: "193GB"
+        part_end: "100%"
+        flags: [luks]
+      when: not partition_check.stat.exists
 
-    - name: Configure LUKS device using community module
+    - name: Check LUKS status
+      command: cryptsetup isLuks /dev/nvme0n1p8
+      register: luks_check
+      failed_when: false
+      changed_when: false
+
+    - name: Format LUKS container (idempotent)
+      community.crypto.luks_device:
+        device: /dev/nvme0n1p8
+        state: present
+        passphrase: "{{ luks_passphrase }}"
+        force: yes  # Critical for overwriting existing headers
+        type: luks2
+      when: luks_check.rc != 0
+
+    - name: Open LUKS container
       community.crypto.luks_device:
         device: /dev/nvme0n1p8
         state: opened
-        name: "{{ crypt_name }}"
+        name: nvme0n1p8_crypt
         passphrase: "{{ luks_passphrase }}"
-        header_size: 16M  # Expand LUKS2 header space
 
     - name: Extend physical volume
       lvol:
-        vg: "{{ vg_name }}"
-        pv: /dev/mapper/{{ crypt_name }}
+        vg: VG0
+        pv: /dev/mapper/nvme0n1p8_crypt
         state: present
 
     - name: Resize logical volume
       community.general.lvol:
-        vg: "{{ vg_name }}"
-        lv: root  # Replace with your LV name
+        vg: VG0
+        lv: LG0
         size: +100%FREE
         resizefs: yes
-        shrink: no
 
-    - name: Update crypttab for persistent mapping
-      lineinfile:
-        path: /etc/crypttab
-        line: "{{ crypt_name }} UUID=$(blkid -s UUID -o value /dev/nvme0n1p8) none luks,discard"
-        regexp: "^{{ crypt_name }}"
-        state: present
+    - name: Update initramfs
+      command: update-initramfs -u -k all
 
-    - name: Finalize filesystem expansion
-      filesystem:
-        fstype: ext4
-        dev: /dev/mapper/{{ vg_name }}-root  # Update with actual LV path
-        resizefs: yes
-        force: yes
-    - name: Allllllllmost final explicit user notification step clearly and explicitly
-      debug:
-        msg: |
-          =======================================================
-          🚨 ATTENTION explicitly:
-          The disk resize and LUKS/LVM/BTRFS resize completed!
-          Please explicitly REBOOT the system clearly now to ensure all
-          changes explicitly take effect clearly. It may also be necessary
-          to run the latest version of install-tpm script as root
-          before the REBOOT step.
-          =======================================================
+    - name: Bind LUKS to TPM
+      command: >
+        clevis luks bind -d /dev/nvme0n1p8 tpm2 '{"pcr_bank":"sha256","pcr_ids":"0,7"}'
+      args:
+        stdin: "{{ luks_passphrase }}"
+      when: "'tpm2' not in (clevis luks list -d /dev/nvme0n1p8 | grep tpm2)"
+
+    - name: Reboot system
+      reboot:
+        reboot_timeout: 600
