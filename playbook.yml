@@ -70,10 +70,27 @@
           pvcreate "/dev/mapper/$CRYPT_NAME"
           vgextend "$VG_NAME" "/dev/mapper/$CRYPT_NAME"
 
-    - name: Execute corrected disk resize setup explicitly clearly encrypted
-      shell: "/tmp/disk_resize.sh"
-      args:
-        executable: /bin/bash
+    - name: Secure LUKS resize handler
+      block:
+        - name: Close LUKS container
+          command: cryptsetup luksClose nvme0n1p8_crypt
+          ignore_errors: yes
+
+        - name: Resize partition
+          parted:
+            device: /dev/nvme0n1
+            number: 8
+            part_end: "100%"
+            flags: [ crypt_luks ]
+
+    - name: Expand LUKS header
+      command: cryptsetup resize nvme0n1p8_crypt
+
+    - name: Resize filesystem
+      filesystem:
+        fstype: ext4
+        dev: /dev/mapper/nvme0n1p8_crypt
+        resizefs: yes
 
     - name: Copy luks_resize.sh explicitly clearly
       copy:
