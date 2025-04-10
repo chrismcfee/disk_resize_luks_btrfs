@@ -77,15 +77,19 @@
         nvme_uuid: "{{ luks_info.stdout_lines[3] }}"
       when: luks_info.stdout_lines[1] != "NOT_FOUND" and luks_info.stdout_lines[3] != "NOT_FOUND"
 
-    - name: Configure crypttab with correct entries
+    - name: Configure crypttab with available entries
       copy:
         dest: /etc/crypttab
-        content: |
-          sda3_crypt UUID={{ sda3_uuid }} none luks,discard
-          nvme0n1p8_crypt UUID={{ nvme_uuid }} none luks
+        content: "{{ crypttab_content }}"
         backup: yes
-      when: sda3_uuid is defined and nvme_uuid is defined
-      failed_when: (sda3_uuid is not defined) or (nvme_uuid is not defined)
+      vars:
+        crypttab_content: |
+          {%- if sda3_uuid != '' %}
+          sda3_crypt UUID={{ sda3_uuid }} none luks,discard
+          {%- endif %}
+          {%- if nvme_uuid != '' %}
+          nvme0n1p8_crypt UUID={{ nvme_uuid }} none luks
+          {%- endif %}
 
     - name: Bind LUKS partitions to TPM
       shell: |
