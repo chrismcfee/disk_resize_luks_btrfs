@@ -26,7 +26,7 @@
           - tss2
           - cracklib-runtime
         state: present
-        update_cache: no  # <-- Explicitly corrected from no to yes
+        update_cache: no
 
     - name: Check for existing partition
       stat:
