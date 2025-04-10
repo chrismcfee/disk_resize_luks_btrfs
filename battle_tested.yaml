@@ -29,42 +29,41 @@
         state: present
         update_cache: no
 
-    # Step 2: Partition management (if missing)
-    - name: Check existing partition /dev/nvme0n1p8
+    # Step 2a: Check existing partition /dev/nvme0n1p8 exists.
+    - name: Check existing partition /dev/nvme0n1p8 exists.
       stat:
         path: /dev/nvme0n1p8
       register: p8_check
 
-    - name: Create partition if missing
+    # Step 2b: Create partition if missing.
+    - name: Create partition if missing.
       shell: |
-        parted --script /dev/nvme0n1 mkpart primary 180GB 100%
-        partprobe /dev/nvme0n1
-        lsblk | grep nvme0n1p8 || echo "Partition creation failed!"
+        parted --script /dev/nvme0n1 mkpart primary ext4 180GB 100%
+        partprobe /dev/nvme0n1 && sleep 5 && lsblk | grep nvme0n1p8 || echo "Partition creation failed!"
       args:
         executable: /bin/bash
       when: not p8_check.stat.exists
 
-
-    # Step 3: LUKS handling (check and create if missing)
-    - name: Check if LUKS container exists on /dev/nvme0n1p8
-      command: sudo cryptsetup isLuks /dev/nvme0n1p8
-      register: luks_check
-      failed_when: false
-      changed_when: false
-
-    - name: Format LUKS container if not already formatted
-      shell: |
-        echo -n "{{ luks_passphrase }}" | sudo cryptsetup luksFormat /dev/nvme0n1p8 -
-      args:
-        executable: /bin/bash
-      when: luks_check.rc != 0
-      ignore_errors: yes
-
-    # Step 4: Open LUKS container (ensure it's accessible)
-    - name: Check if LUKS container is open (mapper exists)
+    # Step 2c (Optional): Verify if partition exists after creation.
+    - name: Verify if partition exists after creation.
       stat:
-        path: /dev/mapper/nvme_crypt
-      register: luks_open_check
+        path: /dev/nvme0n1p8
+      register: p8_check_post
+
+    - name: Fail if partition does not exist after creation.
+      fail:
+        msg: "Partition /dev/nvme0n1p8 was not created successfully!"
+      when: not p8_check_post.stat.exists
+
+    # Step 3 (Optional): Reboot system if needed.
+    - name: Reboot system after partition creation (if needed).
+      reboot:
+        reboot_timeout: 600
+      when: not p8_check_post.stat.exists
+
+    # Step 4a (LUKS): Check if LUKS container exists on /dev/nvme0n1p8.
+    - name: Check if LUKS container exists on /dev/nvme0n1p8.
+      command: sudo cryptsetup isLuks /dev/nvme0n1p8 || true 
 
     - name: Open LUKS container if not already open
       shell: |
@@ -122,8 +121,8 @@
     - name: Update initramfs to persist changes in crypttab configuration.
       command: update-initramfs -u -k all
 
-    # Step 10 (Final): Reboot system to apply changes.
-    - name: Reboot system after resizing and configuration changes.
+    - name: Reboot system after partition creation
       reboot:
         reboot_timeout: 600
+      when: not p8_check_post.stat.exists
 
