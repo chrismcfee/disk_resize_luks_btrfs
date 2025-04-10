@@ -1,0 +1,42 @@
+---
+- name: Reliable LUKS/LVM Resize
+  hosts: zplayers_prod
+  become: true
+  vars_prompt:
+    - name: luks_passphrase
+      prompt: "Enter LUKS passphrase"
+      private: yes
+
+  tasks:
+    - name: Install required tools
+      apt:
+        name:
+          - cryptsetup
+          - parted
+          - lvm2
+          - initramfs-tools
+          - clevis
+          - clevis-luks
+          - clevis-initramfs
+          - clevis-tpm2
+          - tpm2-tools
+          - firmware-misc-nonfree
+          - rng-tools
+          - haveged
+          - tss2
+          - cracklib-runtime
+        state: present
+        update_cache: no
+
+    - name: Handle partition setup
+      ansible.builtin.include_tasks: tasks/partition.yml
+
+    - name: Reboot if partition missing
+      reboot:
+        reboot_timeout: 600
+      when: not p8_check_post.stat.exists
+
+    - name: Configure LUKS
+      ansible.builtin.include_tasks: tasks/luks.yml
+
+    # Continue with remaining tasks...
