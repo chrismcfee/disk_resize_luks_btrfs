@@ -37,15 +37,15 @@
     - name: Configure LUKS container
       ansible.builtin.include_tasks: tasks/luks.yaml
 
-    # Step 4: PV/VG/LV Operations
-    - name: Check if PV exists on /dev/nvme0n1p8
-      command: pvs /dev/nvme0n1p8 --noheadings --quiet
+    - name: Check if PV exists
+      shell: pvs /dev/mapper/nvme_crypt --noheadings
       register: pv_check
-      failed_when: false
-
+      changed_when: false
+    
     - name: Create PV only if missing
-      command: pvcreate /dev/nvme0n1p8
+      shell: pvcreate /dev/mapper/nvme_crypt --force --yes
       when: pv_check.rc != 0
+
 
     - name: Extend VG0 with /dev/nvme0n1p8
       command: vgextend VG0 /dev/nvme0n1p8
@@ -70,30 +70,31 @@
     - name: Update initramfs
       command: update-initramfs -u -k all
 
-    # Step 7: Systemd service for LUKS resize
     - name: Create cryptresize service
-      shell: |
-        cat > /etc/systemd/system/cryptresize.service <<EOF
-        [Unit]
-        Description=Resize LUKS container after boot
-        After=local-fs.target
-        Before=umount.target
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/cryptresize.service
+        content: |
+          [Unit]
+          Description=Resize LUKS container at boot
+          After=systemd-cryptsetup@nvme_crypt.service
+    
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/sbin/cryptsetup resize nvme_crypt
+    
+          [Install]
+          WantedBy=multi-user.target
+        owner: root
+        group: root
+        mode: '0644'
 
-        [Service]
-        Type=oneshot
-        ExecStart=/usr/sbin/cryptsetup resize sda3_crypt
-
-        [Install]
-        WantedBy=multi-user.target
-        EOF
-      args:
-        executable: /bin/bash
 
     - name: Enable cryptresize service
-      systemd:
+      ansible.builtin.systemd:
         name: cryptresize.service
-        enabled: true
-      when: ansible_facts.services['cryptresize.service'] is not defined
+        enabled: yes
+        state: started
+
 
     # Final Verification
     - name: Verify storage state
