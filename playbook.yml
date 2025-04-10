@@ -28,7 +28,7 @@
         state: present
         update_cache: no  # <-- Explicitly corrected from no to yes
 
-    - name: Check existing partition
+    - name: Check for existing partition
       stat:
         path: /dev/nvme0n1p8
       register: partition_check
@@ -43,18 +43,17 @@
         flags: [luks]
       when: not partition_check.stat.exists
 
-    - name: Check LUKS status
+    - name: Verify LUKS status
       command: cryptsetup isLuks /dev/nvme0n1p8
       register: luks_check
       failed_when: false
-      changed_when: false
 
     - name: Format LUKS container (idempotent)
       community.crypto.luks_device:
         device: /dev/nvme0n1p8
         state: present
         passphrase: "{{ luks_passphrase }}"
-        force: yes  # Critical for overwriting existing headers
+        force: yes
         type: luks2
       when: luks_check.rc != 0
 
@@ -65,30 +64,29 @@
         name: nvme0n1p8_crypt
         passphrase: "{{ luks_passphrase }}"
 
-    - name: Wipe existing LVM signatures (if any)
-      command: wipefs -a /dev/mapper/nvme0n1p8_crypt
-      when: not partition_check.stat.exists  # Only on first run
-
-    - name: Create physical volume on decrypted device
-      command: pvcreate --force /dev/mapper/nvme0n1p8_crypt
-      args:
-        creates: /dev/mapper/nvme0n1p8_crypt  # Makes task idempotent
-
-    - name: Extend volume group
+    - name: Initialize physical volume
       community.general.lvg:
         vg: VG0
         pvs: /dev/mapper/nvme0n1p8_crypt
-        
+        pesize: 4
+
+    - name: Extend logical volume
+      community.general.lvol:
+        vg: VG0
+        lv: LG0
+        size: +100%FREE
+        resizefs: yes
+
     - name: Update initramfs
       command: update-initramfs -u -k all
 
-    - name: Bind LUKS to TPM
+    - name: Bind LUKS to TPM (idempotent)
       command: >
         clevis luks bind -d /dev/nvme0n1p8 tpm2 '{"pcr_bank":"sha256","pcr_ids":"0,7"}'
       args:
         stdin: "{{ luks_passphrase }}"
       when: "'tpm2' not in (clevis luks list -d /dev/nvme0n1p8 | grep tpm2)"
 
-    - name: Reboot system
+    - name: Final reboot
       reboot:
         reboot_timeout: 600
