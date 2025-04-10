@@ -12,10 +12,10 @@
     executable: /bin/bash
   when: luks_check.rc != 0  # Ensure this runs when NOT LUKS-formatted
 
-- name: Check if LUKS container is open
-  stat:
-    path: /dev/mapper/nvme_crypt
-  register: luks_open_check
+#- name: Check if LUKS container is open
+##  stat:
+ ##   path: /dev/mapper/nvme_crypt
+  #register: luks_open_check
 
 - name: Open LUKS container
   community.crypto.luks_device:
@@ -23,4 +23,6 @@
     state: opened
     passphrase: "{{ luks_passphrase }}"
     name: nvme_crypt
+    persistent: yes
+    allow_discards: yes
 
