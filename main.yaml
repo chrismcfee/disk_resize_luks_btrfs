@@ -29,7 +29,7 @@
         update_cache: no
 
     - name: Handle partition setup
-      ansible.builtin.include_tasks: tasks/partition.yml
+      ansible.builtin.include_tasks: tasks/partition.yaml
 
     - name: Reboot if partition missing
       reboot:
@@ -38,7 +38,7 @@
 
     - name: Configure LUKS
       ansible.builtin.include_tasks:
-        file: tasks/luks.yml
+        file: tasks/luks.yaml
         apply:
           tags: luks
       tags: 
