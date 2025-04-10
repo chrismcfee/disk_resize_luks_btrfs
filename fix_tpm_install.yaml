@@ -67,12 +67,37 @@
         echo "[Explicitly] Enabling entropy explicitly." && systemctl start rng-tools haveged || true && systemctl enable rng-tools haveged || true
       ignore_errors: yes
 
+    - name: Check encrypted partition details
+      shell: |
+        # First check if /dev/sda3 is a LUKS partition
+        if cryptsetup isLuks /dev/sda3; then
+          SDA3_UUID=$(cryptsetup luksUUID /dev/sda3)
+          echo "SDA3_UUID=$SDA3_UUID"
+        fi
+
+        # Get nvme0n1p8 UUID
+        if cryptsetup isLuks /dev/nvme0n1p8; then
+          NVME_UUID=$(cryptsetup luksUUID /dev/nvme0n1p8)
+          echo "NVME_UUID=$NVME_UUID"
+        fi
+      register: luks_info
+      changed_when: false
+
+    - name: Show what was found
+      debug:
+        msg: "{{ luks_info.stdout_lines }}"
+
+    - name: Extract UUIDs
+      set_fact:
+        sda3_uuid: "{{ luks_info.stdout | regex_search('SDA3_UUID=(.+)', '\\1') | first }}"
+        nvme_uuid: "{{ luks_info.stdout | regex_search('NVME_UUID=(.+)', '\\1') | first }}"
+
     - name: Configure crypttab with correct entries
       copy:
         dest: /etc/crypttab
         content: |
-          sda3_crypt UUID={{ luks_info.stdout | regex_search('UUID=([^\n]+)', '\\1') | first }} none luks,discard
-          nvme0n1p8_crypt UUID={{ luks_info.stdout | regex_search('NVME_UUID=([^\n]+)', '\\1') | first }} none luks
+          sda3_crypt UUID={{ sda3_uuid }} none luks,discard
+          nvme0n1p8_crypt UUID={{ nvme_uuid }} none luks
         backup: yes
 
     - name: Bind LUKS to TPM for sda3
