@@ -65,10 +65,19 @@
         name: nvme0n1p8_crypt
         passphrase: "{{ luks_passphrase }}"
 
-    - name: run this
-      shell: |
-        sudo pvcreate /dev/nvme0n1p8
-        sudo vgextend VG0 /dev/nvme0n1p8
+    - name: Wipe existing LVM signatures (if any)
+      command: wipefs -a /dev/mapper/nvme0n1p8_crypt
+      when: not partition_check.stat.exists  # Only on first run
+
+    - name: Create physical volume on decrypted device
+      command: pvcreate --force /dev/mapper/nvme0n1p8_crypt
+      args:
+        creates: /dev/mapper/nvme0n1p8_crypt  # Makes task idempotent
+
+    - name: Extend volume group
+      community.general.lvg:
+        vg: VG0
+        pvs: /dev/mapper/nvme0n1p8_crypt
         
     - name: Update initramfs
       command: update-initramfs -u -k all
