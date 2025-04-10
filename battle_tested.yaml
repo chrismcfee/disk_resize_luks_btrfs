@@ -39,9 +39,11 @@
       shell: |
         parted --script /dev/nvme0n1 mkpart primary 180GB 100%
         partprobe /dev/nvme0n1
+        lsblk | grep nvme0n1p8 || echo "Partition creation failed!"
       args:
         executable: /bin/bash
       when: not p8_check.stat.exists
+
 
     # Step 3: LUKS handling (check and create if missing)
     - name: Check if LUKS container exists on /dev/nvme0n1p8
