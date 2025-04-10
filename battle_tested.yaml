@@ -52,7 +52,7 @@
 
     - name: Format LUKS container if not already formatted
       shell: |
-        echo -n "{{ luks_passphrase }}" | cryptsetup luksFormat /dev/nvme0n1p8 -
+        echo -n "{{ luks_passphrase }}" | sudo cryptsetup luksFormat /dev/nvme0n1p8 -
       args:
         executable: /bin/bash
       when: luks_check.rc != 0
