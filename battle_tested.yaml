@@ -34,52 +34,51 @@
         partprobe /dev/nvme0n1
       args:
         executable: /bin/bash
+      register: partition_creation
+      failed_when: false  # Allow existing partitions
 
-    - name: Setup LUKS container
+    # LUKS setup (atomic operations)
+    - name: Configure LUKS encryption
       block:
-        - name: Format LUKS partition
-          community.crypto.luks_device:
-            device: /dev/nvme0n1p8
-            state: present
-            passphrase: "{{ luks_passphrase }}"
-            type: luks2
-            cipher: aes-xts-plain64
-            keysize: 512
-            hash: sha256
-            pbkdf: argon2i
-            pbkdf_parameters:
-              time: 4        # Seconds (not milliseconds/iterations)
-              memory: 1048576  # KB (1GB = 1048576KB)
-              parallel: 4     # Thread count
+        - name: Format LUKS container
+          shell: |
+            echo -n "{{ luks_passphrase }}" | cryptsetup luksFormat /dev/nvme0n1p8 -
+          args:
+            executable: /bin/bash
 
         - name: Open LUKS container
-          community.crypto.luks_device:
-            device: /dev/nvme0n1p8
-            state: opened
-            name: crypt_root
-            passphrase: "{{ luks_passphrase }}"
+          shell: |
+            echo -n "{{ luks_passphrase }}" | cryptsetup open /dev/nvme0n1p8 nvme_crypt -
+          args:
+            executable: /bin/bash
 
-    # LVM Operations (raw commands)
+    # LVM operations (direct command equivalents)
     - name: Extend storage
       shell: |
-        pvcreate /dev/mapper/nvme0n1p8_crypt
-        vgextend VG0 /dev/mapper/nvme0n1p8_crypt
+        pvcreate /dev/mapper/nvme_crypt
+        vgextend VG0 /dev/mapper/nvme_crypt
         lvextend -l +100%FREE /dev/VG0/LG0
-        resize2fs /dev/mapper/VG0-LG0 || true
+        resize2fs /dev/mapper/VG0-LG0
       args:
         executable: /bin/bash
 
-    # Initramfs update
-    - name: Update initramfs
-      shell: update-initramfs -u -k all
+    # TPM auto-unlock (matches your systemd service)
+    - name: Configure TPM binding
+      shell: |
+        clevis luks bind -d /dev/nvme0n1p8 tpm2 '{"pcr_bank":"sha256","pcr_ids":"0,7"}' <<< "{{ luks_passphrase }}"
       args:
         executable: /bin/bash
 
-    - name: Configure automatic unlock
+    # Final configuration (direct file manipulation)
+    - name: Update crypttab
       lineinfile:
         path: /etc/crypttab
-        line: "crypt_root UUID={{ ansible_devices.nvme0n1p8.luks.uuid }} none luks,discard,keyscript=/usr/bin/clevis-decrypt-tpm2"
+        line: "nvme_crypt UUID=$(blkid -s UUID -o value /dev/nvme0n1p8) none luks,discard,keyscript=/usr/bin/clevis-decrypt-tpm2"
+        regexp: "^nvme_crypt"
 
+    - name: Update initramfs
+      command: update-initramfs -u -k all
+      
     # Reboot handling
     - name: Reboot system
       reboot:
