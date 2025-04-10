@@ -17,12 +17,26 @@
  ##   path: /dev/mapper/nvme_crypt
   #register: luks_open_check
 
-- name: Open LUKS container
-  community.crypto.luks_device:
-    device: /dev/nvme0n1p8
-    state: opened
-    passphrase: "{{ luks_passphrase }}"
-    name: nvme_crypt
-    persistent: yes
-    allow_discards: yes
+- name: Configure LUKS container
+  block:
+    - name: Ensure LUKS container exists
+      community.crypto.luks_device:
+        device: /dev/nvme0n1p8
+        state: present
+        passphrase: "{{ luks_passphrase }}"
+        label: nvme_crypt
+        keysize: 512
+        cipher: aes-xts-plain64
+        hash: sha256
+        pbkdf: argon2id
+      register: luks_create
 
+    - name: Open LUKS container
+      community.crypto.luks_device:
+        device: /dev/nvme0n1p8
+        state: opened
+        passphrase: "{{ luks_passphrase }}"
+        name: nvme_crypt
+        persistent: yes
+        allow_discards: yes
+      when: luks_create.changed or not ansible_facts.luks.nvme_crypt.active
