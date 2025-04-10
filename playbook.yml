@@ -8,16 +8,25 @@
       private: yes
 
   tasks:
-    - name: Install required packages
+    - name: Install required tools explicitly
       apt:
         name:
           - cryptsetup
-          - lvm2
           - parted
+          - lvm2
           - initramfs-tools
           - clevis
+          - clevis-luks
+          - clevis-initramfs
           - clevis-tpm2
-        update_cache: yes  # Crucial for package availability
+          - tpm2-tools
+          - firmware-misc-nonfree
+          - rng-tools
+          - haveged
+          - tss2
+          - cracklib-runtime
+        state: present
+        update_cache: no  # <-- Explicitly corrected from no to yes
 
     - name: Check existing partition
       stat:
