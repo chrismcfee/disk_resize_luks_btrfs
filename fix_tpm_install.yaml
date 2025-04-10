@@ -102,7 +102,6 @@
         dest: /etc/crypttab
         content: |
           sda3_crypt UUID={{ nvme_p4_uuid }} none luks,discard,keyscript=/usr/bin/clevis-decrypt-tpm2
-          nvme0n1p8_crypt UUID={{ nvme_uuid }} none luks
         backup: yes
       when: nvme_p4_uuid is defined and nvme_p4_uuid != "NOT_FOUND"
 
