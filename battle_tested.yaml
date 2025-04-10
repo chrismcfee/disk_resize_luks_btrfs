@@ -6,30 +6,31 @@
     - name: luks_passphrase
       prompt: "Enter LUKS passphrase"
       private: yes
-#newv
+
   tasks:
+    # Step 1: Install required tools
     - name: Install required tools explicitly
       apt:
         name:
-         - cryptsetup
-         - parted
-         - lvm2
-         - initramfs-tools
-         - clevis
-         - clevis-luks
-         - clevis-initramfs
-         - clevis-tpm2
-         - tpm2-tools
-         - firmware-misc-nonfree
-         - rng-tools
-         - haveged
-         - tss2
-         - cracklib-runtime
+          - cryptsetup
+          - parted
+          - lvm2
+          - initramfs-tools
+          - clevis
+          - clevis-luks
+          - clevis-initramfs
+          - clevis-tpm2
+          - tpm2-tools
+          - firmware-misc-nonfree
+          - rng-tools
+          - haveged
+          - tss2
+          - cracklib-runtime
         state: present
         update_cache: no
-    # Partitioning (exact copy of your bash logic)
-    # Partition management with idempotency
-    - name: Check existing partition
+
+    # Step 2: Partition management (if missing)
+    - name: Check existing partition /dev/nvme0n1p8
       stat:
         path: /dev/nvme0n1p8
       register: p8_check
@@ -42,75 +43,84 @@
         executable: /bin/bash
       when: not p8_check.stat.exists
 
-    # LUKS handling with existence checks
-    - name: Check LUKS status
+    # Step 3: LUKS handling (check and create if missing)
+    - name: Check if LUKS container exists on /dev/nvme0n1p8
       command: cryptsetup isLuks /dev/nvme0n1p8
       register: luks_check
       failed_when: false
       changed_when: false
 
-    - name: Format LUKS container
+    - name: Format LUKS container if not already formatted
       shell: |
         echo -n "{{ luks_passphrase }}" | cryptsetup luksFormat /dev/nvme0n1p8 -
       args:
         executable: /bin/bash
       when: luks_check.rc != 0
 
-    - name: Open LUKS container
+    # Step 4: Open LUKS container (ensure it's accessible)
+    - name: Check if LUKS container is open (mapper exists)
+      stat:
+        path: /dev/mapper/nvme_crypt
+      register: luks_open_check
+
+    - name: Open LUKS container if not already open
       shell: |
         echo -n "{{ luks_passphrase }}" | cryptsetup open /dev/nvme0n1p8 nvme_crypt -
       args:
         executable: /bin/bash
+      when: not luks_open_check.stat.exists
 
-    # LVM operations with validation
-    - name: Check physical volume
-      command: pvs /dev/mapper/nvme_crypt
+    # Step 5: LVM operations (PV, VG, LV resizing)
+    - name: Check if physical volume exists on /dev/mapper/nvme_crypt
+      command: pvs /dev/mapper/nvme_crypt --noheadings --quiet --output pv_name
       register: pv_check
       failed_when: false
-      changed_when: false
 
-    - name: Create physical volume
+    - name: Create physical volume if missing on /dev/mapper/nvme_crypt
       command: pvcreate /dev/mapper/nvme_crypt
-      when: pv_check.rc != 0
+      when: pv_check.stdout == ""
 
-    - name: Extend volume group
+    - name: Extend volume group VG0 to include new physical volume
       command: vgextend VG0 /dev/mapper/nvme_crypt
 
-    - name: Extend logical volume
+    - name: Extend logical volume LG0 to use all free space in VG0
       command: lvextend -l +100%FREE /dev/VG0/LG0
 
-    - name: Resize filesystem
-      command: resize2fs /dev/mapper/VG0-LG0
+    # Step 6: Resize filesystem (ext4 or Btrfs)
+    - name: Resize ext4 filesystem on logical volume LG0 (if applicable)
+      command: resize2fs /dev/mapper/VG0-LG0 || true
 
-    # TPM configuration with idempotency
-    - name: Check TPM binding
-      command: clevis luks list -d /dev/nvme0n1p8
-      register: tpm_check
-      failed_when: "'clevis' in stderr"
-      changed_when: false
+    # Step 7 (Optional): TPM binding for automatic unlocking with Clevis TPM2 module.
+    - name: Check existing TPM binding for LUKS container on /dev/nvme0n1p8
+      command: clevis luks list -d /dev/nvme0n1p8 | grep "tpm2"
+      register: tpm_binding_check
+      failed_when: false
 
-    - name: Bind LUKS to TPM
+    - name: Bind LUKS container to TPM if not already bound (idempotent)
       shell: |
         clevis luks bind -d /dev/nvme0n1p8 tpm2 '{"pcr_bank":"sha256","pcr_ids":"0,7"}' <<< "{{ luks_passphrase }}"
       args:
         executable: /bin/bash
-      when: "'tpm2' not in tpm_check.stdout"
+      when: tpm_binding_check.rc != 0
 
-    - name: Get LUKS UUID
+    # Step 8 (Optional): Update crypttab and initramfs for persistent unlocking.
+    - name: Get UUID of LUKS container on /dev/nvme0n1p8 for crypttab entry
       command: blkid -s UUID -o value /dev/nvme0n1p8
       register: luks_uuid
 
-    - name: Update crypttab
+    - name: Update crypttab with LUKS UUID for persistent unlocking via TPM2/Clevis keyscript.
       lineinfile:
         path: /etc/crypttab
         line: "nvme_crypt UUID={{ luks_uuid.stdout }} none luks,discard,keyscript=/usr/bin/clevis-decrypt-tpm2"
         regexp: "^nvme_crypt"
         state: present
 
-    - name: Update initramfs
+    # Step 9 (Optional): Update initramfs to reflect changes in crypttab.
+    - name: Update initramfs to persist changes in crypttab configuration.
       command: update-initramfs -u -k all
-      
-    # Reboot handling
-    - name: Reboot system
+
+    # Step 10 (Final): Reboot system to apply changes.
+    - name: Reboot system after resizing and configuration changes.
       reboot:
         reboot_timeout: 600
+
