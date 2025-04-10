@@ -96,14 +96,35 @@
         msg: "Required devices not found"
       when: not device_check.results[0].stat.exists
       
-    - name: Configure crypttab with correct entries
-      copy:
-      dest: /etc/crypttab
-      content: |
-        sda3_crypt UUID={{ nvme_p4_uuid }} none luks,discard,keyscript=/usr/bin/clevis-decrypt-tpm2
-        nvme0n1p8_crypt UUID={{ nvme_uuid }} none luks
-        backup: yes
-      when: nvme_p4_uuid is defined and nvme_p4_uuid != "NOT_FOUND"
+- name: Create LUKS keys directory
+  file:
+    path: /etc/luks-keys
+    state: directory
+    mode: '0700'
+
+- name: Generate LUKS key files
+  shell: |
+    dd if=/dev/urandom of=/etc/luks-keys/sda3_crypt.key bs=512 count=1
+    dd if=/dev/urandom of=/etc/luks-keys/nvme0n1p8.key bs=512 count=1
+    chmod 400 /etc/luks-keys/sda3_crypt.key
+    chmod 400 /etc/luks-keys/nvme0n1p8.key
+  args:
+    creates: /etc/luks-keys/sda3_crypt.key
+
+- name: Add keys to LUKS
+  shell: |
+    echo "{{ luks_passphrase }}" | cryptsetup luksAddKey /dev/nvme0n1p4 /etc/luks-keys/sda3_crypt.key
+    echo "{{ luks_passphrase }}" | cryptsetup luksAddKey /dev/nvme0n1p8 /etc/luks-keys/nvme0n1p8.key
+  no_log: true
+
+- name: Configure crypttab with correct entries and key files
+  copy:
+    dest: /etc/crypttab
+    content: |
+      sda3_crypt UUID={{ nvme_p4_uuid }} /etc/luks-keys/sda3_crypt.key luks,discard,keyscript=/usr/bin/clevis-decrypt-tpm2
+      nvme0n1p8_crypt UUID={{ nvme_uuid }} /etc/luks-keys/nvme0n1p8.key luks
+    backup: yes
+  when: nvme_p4_uuid is defined and nvme_p4_uuid != "NOT_FOUND"
 
     - name: Check if TPM binding exists
       shell: clevis luks list -d /dev/nvme0n1p4 | grep -q "tpm2"
