@@ -28,53 +28,84 @@
       state: present
       update_cache: no
     # Partitioning (exact copy of your bash logic)
-    - name: Create partition explicitly
+    # Partition management with idempotency
+    - name: Check existing partition
+      stat:
+        path: /dev/nvme0n1p8
+      register: p8_check
+
+    - name: Create partition if missing
       shell: |
         parted --script /dev/nvme0n1 mkpart primary 180GB 100%
         partprobe /dev/nvme0n1
       args:
         executable: /bin/bash
-      register: partition_creation
-      failed_when: false  # Allow existing partitions
+      when: not p8_check.stat.exists
 
-    # LUKS setup (atomic operations)
-    - name: Configure LUKS encryption
-      block:
-        - name: Format LUKS container
-          shell: |
-            echo -n "{{ luks_passphrase }}" | cryptsetup luksFormat /dev/nvme0n1p8 -
-          args:
-            executable: /bin/bash
+    # LUKS handling with existence checks
+    - name: Check LUKS status
+      command: cryptsetup isLuks /dev/nvme0n1p8
+      register: luks_check
+      failed_when: false
+      changed_when: false
 
-        - name: Open LUKS container
-          shell: |
-            echo -n "{{ luks_passphrase }}" | cryptsetup open /dev/nvme0n1p8 nvme_crypt -
-          args:
-            executable: /bin/bash
-
-    # LVM operations (direct command equivalents)
-    - name: Extend storage
+    - name: Format LUKS container
       shell: |
-        pvcreate /dev/mapper/nvme_crypt
-        vgextend VG0 /dev/mapper/nvme_crypt
-        lvextend -l +100%FREE /dev/VG0/LG0
-        resize2fs /dev/mapper/VG0-LG0
+        echo -n "{{ luks_passphrase }}" | cryptsetup luksFormat /dev/nvme0n1p8 -
+      args:
+        executable: /bin/bash
+      when: luks_check.rc != 0
+
+    - name: Open LUKS container
+      shell: |
+        echo -n "{{ luks_passphrase }}" | cryptsetup open /dev/nvme0n1p8 nvme_crypt -
       args:
         executable: /bin/bash
 
-    # TPM auto-unlock (matches your systemd service)
-    - name: Configure TPM binding
+    # LVM operations with validation
+    - name: Check physical volume
+      command: pvs /dev/mapper/nvme_crypt
+      register: pv_check
+      failed_when: false
+      changed_when: false
+
+    - name: Create physical volume
+      command: pvcreate /dev/mapper/nvme_crypt
+      when: pv_check.rc != 0
+
+    - name: Extend volume group
+      command: vgextend VG0 /dev/mapper/nvme_crypt
+
+    - name: Extend logical volume
+      command: lvextend -l +100%FREE /dev/VG0/LG0
+
+    - name: Resize filesystem
+      command: resize2fs /dev/mapper/VG0-LG0
+
+    # TPM configuration with idempotency
+    - name: Check TPM binding
+      command: clevis luks list -d /dev/nvme0n1p8
+      register: tpm_check
+      failed_when: "'clevis' in stderr"
+      changed_when: false
+
+    - name: Bind LUKS to TPM
       shell: |
         clevis luks bind -d /dev/nvme0n1p8 tpm2 '{"pcr_bank":"sha256","pcr_ids":"0,7"}' <<< "{{ luks_passphrase }}"
       args:
         executable: /bin/bash
+      when: "'tpm2' not in tpm_check.stdout"
 
-    # Final configuration (direct file manipulation)
+    - name: Get LUKS UUID
+      command: blkid -s UUID -o value /dev/nvme0n1p8
+      register: luks_uuid
+
     - name: Update crypttab
       lineinfile:
         path: /etc/crypttab
-        line: "nvme_crypt UUID=$(blkid -s UUID -o value /dev/nvme0n1p8) none luks,discard,keyscript=/usr/bin/clevis-decrypt-tpm2"
+        line: "nvme_crypt UUID={{ luks_uuid.stdout }} none luks,discard,keyscript=/usr/bin/clevis-decrypt-tpm2"
         regexp: "^nvme_crypt"
+        state: present
 
     - name: Update initramfs
       command: update-initramfs -u -k all
