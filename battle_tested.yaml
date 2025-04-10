@@ -1,6 +1,6 @@
 ---
 - name: Reliable LUKS/LVM Resize
-  hosts: all
+  hosts: zplayers_prod
   become: true
   vars_prompt:
     - name: luks_passphrase
