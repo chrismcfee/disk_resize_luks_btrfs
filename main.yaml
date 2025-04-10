@@ -2,7 +2,7 @@
 - name: Reliable LUKS/LVM Resize
   hosts: zplayers_prod
   become: true
-  vars_prompt: #do a flip!
+  vars_prompt:
     - name: luks_passphrase
       prompt: "Enter LUKS passphrase"
       private: yes
@@ -37,20 +37,20 @@
     - name: Configure LUKS container
       ansible.builtin.include_tasks: tasks/luks.yaml
 
-    - name: Check if PV exists
+    # Step 4: LVM Configuration (PV, VG, LV)
+    - name: Check if PV exists on /dev/mapper/nvme_crypt
       shell: pvs /dev/mapper/nvme_crypt --noheadings
       register: pv_check
       changed_when: false
-    
+
     - name: Create PV only if missing
       shell: pvcreate /dev/mapper/nvme_crypt --force --yes
       when: pv_check.rc != 0
 
-
     - name: Extend VG0 with /dev/nvme0n1p8
       command: vgextend VG0 /dev/nvme0n1p8
 
-    - name: Extend logical volume LG0
+    - name: Extend logical volume LG0 to use all free space.
       command: lvextend -l +100%FREE /dev/VG0/LG0
 
     # Step 5: Filesystem Resize
@@ -58,52 +58,46 @@
       shell: df -T / | awk 'NR==2 {print $2}'
       register: fs_type
 
-    - name: Resize ext4 filesystem
+    - name: Resize ext4 filesystem (if applicable)
       command: resize2fs /dev/mapper/VG0-LG0
       when: fs_type.stdout == "ext4"
 
-    - name: Resize Btrfs filesystem
+    - name: Resize Btrfs filesystem (if applicable)
       command: btrfs filesystem resize max /
       when: fs_type.stdout == "btrfs"
 
-    # Step 6: Update initramfs
-    - name: Update initramfs
+    # Step 6: Update initramfs and Create Cryptresize Service
+    - name: Update initramfs for all kernels
       command: update-initramfs -u -k all
 
-    - name: Create cryptresize service
+    - name: Create cryptresize service file for boot-time resize
       ansible.builtin.copy:
         dest: /etc/systemd/system/cryptresize.service
         content: |
           [Unit]
           Description=Resize LUKS container at boot
           After=systemd-cryptsetup@nvme_crypt.service
-    
+
           [Service]
           Type=oneshot
           ExecStart=/usr/sbin/cryptsetup resize nvme_crypt
-    
+
           [Install]
           WantedBy=multi-user.target
         owner: root
         group: root
         mode: '0644'
 
-    
-    - name: Reload systemd daemon
-      #ansible.builtin.systemd:
-      #    daemon_reload: yes
-      shell: |
-        sudo systemctl daemon-reload || true
-    
-    - name: Enable cryptresize service
-      shell: |
-        sudo systemctl enable cryptresize || true &&
-        sudo systemctl start cryptresize || true
-      #ansible.builtin.systemd:
-      #  name: cryptresize.service
-      #  enabled: yes
-      #  state: started
+    - name: Reload systemd daemon to recognize new services.
+      ansible.builtin.systemd:
+        daemon_reload: yes
 
-    # Final Verification
-    - name: Verify storage state
+    - name: Enable and start cryptresize service.
+      ansible.builtin.systemd:
+        name: cryptresize.service
+        enabled: yes
+        state: started
+
+    # Final Verification of Storage State
+    - name: Verify storage state after operations.
       ansible.builtin.include_tasks: tasks/verify.yaml
