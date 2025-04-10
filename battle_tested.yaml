@@ -6,7 +6,7 @@
     - name: luks_passphrase
       prompt: "Enter LUKS passphrase"
       private: yes
-
+#newv
   tasks:
     - name: Install required tools explicitly
       apt:
