@@ -67,18 +67,17 @@
         # Get nvme0n1p4 UUID directly (this is your encrypted root)
         echo "===== NVME0N1P4 ====="
         cryptsetup luksUUID /dev/nvme0n1p4 || echo "NOT_FOUND"
-
-        # Get nvme0n1p8 info (your LVM member)
-        #echo "===== NVME0N1P8 ====="
-        #cryptsetup luksUUID /dev/nvme0n1p8 || echo "NOT_FOUND"
+        # Get nvme0n1p8 UUID
+        echo "===== NVME0N1P8 ====="
+        cryptsetup luksUUID /dev/nvme0n1p8 || echo "NOT_FOUND"
       register: luks_info
       changed_when: false
-
 
     - name: Extract UUID
       set_fact:
         nvme_p4_uuid: "{{ luks_info.stdout_lines[1] }}"
-      when: luks_info.stdout_lines[1] != "NOT_FOUND"
+        nvme_uuid: "{{ luks_info.stdout_lines[3] }}"
+      when: luks_info.stdout_lines[1] != "NOT_FOUND" and luks_info.stdout_lines[3] != "NOT_FOUND"
 
     - name: Show raw output
       debug:
