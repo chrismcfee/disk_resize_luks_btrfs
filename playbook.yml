@@ -70,14 +70,10 @@
         vg: VG0
         pv: /dev/mapper/nvme0n1p8_crypt
         state: present
-
-    - name: Resize logical volume
-      community.general.lvol:
-        vg: VG0
-        lv: LG0
-        size: +100%FREE
-        resizefs: yes
-
+    - name: run this
+      shell: |
+        sudo vgextend VG0 /dev/nvme0n1p8
+        
     - name: Update initramfs
       command: update-initramfs -u -k all
 
