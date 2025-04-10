@@ -1,0 +1,23 @@
+- name: Verify root filesystem
+  shell: df -h /
+  register: df_output
+
+- name: Verify physical volumes
+  shell: pvs --noheadings --output pv_name,vg_name,size,free --units m | column -t
+  register: pvs_output
+
+- name: Verify volume groups
+  shell: vgs --noheadings --output vg_name,size,free --units m | column -t
+  register: vgs_output
+
+- name: Verify logical volumes
+  shell: lvdisplay /dev/VG0/LG0 | grep Size | column -t
+  register: lvdisplay_output
+
+- name: Show verification results
+  debug:
+    msg:
+      - "Root Filesystem Usage:\n{{ df_output.stdout }}"
+      - "Physical Volumes:\n{{ pvs_output.stdout }}"
+      - "Volume Groups:\n{{ vgs_output.stdout }}"
+      - "Logical Volume Details:\n{{ lvdisplay_output.stdout }}"
