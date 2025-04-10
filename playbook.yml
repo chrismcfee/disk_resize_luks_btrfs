@@ -76,9 +76,9 @@
             hash: sha256
             pbkdf: argon2i
             pbkdf_parameters:
-              iterations: 40000
-              memory: 1048576  # 1GB
-              parallel: 4
+              time_ms: 4000       # 4 seconds (4000ms)
+              memory_kb: 1048576  # 1GB (1048576KB)
+              parallel_threads: 4
         - name: Open LUKS container
           community.crypto.luks_device:
             device: /dev/nvme0n1p8
