@@ -47,77 +47,41 @@
       ignore_errors: yes
       become_user: zignage
 
-    - name: Copy corrected disk resizer explicitly into /tmp/
-      copy:
-        dest: "/tmp/disk_resize.sh"
-        mode: '0755'
-        content: |
-          #!/bin/bash
-          set -e
-          TARGET_DISK="/dev/nvme0n1"
-          NEW_PART="/dev/nvme0n1p8"
-          VG_NAME="VG0"
-          CRYPT_NAME="nvme0n1p8_crypt"
+    - name: Configure LUKS device using community module
+      community.crypto.luks_device:
+        device: /dev/nvme0n1p8
+        state: opened
+        name: "{{ crypt_name }}"
+        passphrase: "{{ luks_passphrase }}"
+        header_size: 16M  # Expand LUKS2 header space
 
-          parted -s "$TARGET_DISK" print free
-          START_VALUE=$(parted -ms "$TARGET_DISK" print free | grep free | tail -1 | cut -d: -f2)
-          parted -s -a optimal "$TARGET_DISK" mkpart primary "$START_VALUE" 100%
-          partprobe "$TARGET_DISK"
-          sleep 5
+    - name: Extend physical volume
+      lvol:
+        vg: "{{ vg_name }}"
+        pv: /dev/mapper/{{ crypt_name }}
+        state: present
 
-          echo -n "{{ luks_passphrase }}" | cryptsetup luksFormat "$NEW_PART" -
-          echo -n "{{ luks_passphrase }}" | cryptsetup open "$NEW_PART" "$CRYPT_NAME" -
-          pvcreate "/dev/mapper/$CRYPT_NAME"
-          vgextend "$VG_NAME" "/dev/mapper/$CRYPT_NAME"
+    - name: Resize logical volume
+      community.general.lvol:
+        vg: "{{ vg_name }}"
+        lv: root  # Replace with your LV name
+        size: +100%FREE
+        resizefs: yes
+        shrink: no
 
-    - name: Secure LUKS resize handler
-      block:
-        - name: Close LUKS container
-          command: cryptsetup luksClose nvme0n1p8_crypt
-          ignore_errors: yes
+    - name: Update crypttab for persistent mapping
+      lineinfile:
+        path: /etc/crypttab
+        line: "{{ crypt_name }} UUID=$(blkid -s UUID -o value /dev/nvme0n1p8) none luks,discard"
+        regexp: "^{{ crypt_name }}"
+        state: present
 
-        - name: Resize partition
-          parted:
-            device: /dev/nvme0n1
-            number: 8
-            part_end: "100%"
-            flags: [ crypt_luks ]
-
-    - name: Expand LUKS header
-      command: cryptsetup resize nvme0n1p8_crypt
-
-    - name: Resize filesystem
+    - name: Finalize filesystem expansion
       filesystem:
         fstype: ext4
-        dev: /dev/mapper/nvme0n1p8_crypt
+        dev: /dev/mapper/{{ vg_name }}-root  # Update with actual LV path
         resizefs: yes
-
-    - name: Copy luks_resize.sh explicitly clearly
-      copy:
-        src: "scripts/luks_resize.sh"
-        dest: "/tmp/luks_resize.sh"
-        mode: '0755'
-
-    - name: Run luks_resize explicitly clearly
-      expect:
-        command: bash "/tmp/luks_resize.sh"
-        responses:
-          '(?i)Enter passphrase.*:': "{{ luks_passphrase }}"
-        timeout: 600
-    #- name: Cleanup explicitly
-    #  file:
-    #    path: "{{ item }}"
-    #    state: absent
-    #    loop:
-    #      - "/tmp/disk_resize.sh"
-    #      - "/tmp/luks_resize.sh"
-    - name: Cleanup explicitly
-      file:
-        path: "{{ item }}"
-        state: absent
-      loop:
-        - "/tmp/disk_resize.sh"
-        - "/tmp/luks_resize.sh"
+        force: yes
     - name: Allllllllmost final explicit user notification step clearly and explicitly
       debug:
         msg: |
