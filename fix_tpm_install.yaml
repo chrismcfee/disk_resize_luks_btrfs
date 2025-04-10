@@ -95,12 +95,8 @@
     - name: Fail if devices don't exist
       fail:
         msg: "Required devices not found"
-      when: not device_check.results[0].stat.exists or not device_check.results[1].stat.exists  # This will fail
-
-    - name: Fail if devices don't exist
-      fail:
-        msg: "Required devices not found"
       when: not device_check.results[0].stat.exists
+      
     - name: Configure crypttab with correct entries
       copy:
         dest: /etc/crypttab
