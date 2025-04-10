@@ -20,19 +20,19 @@
         state: present
         type: luks2
         label: nvme_crypt
-        passphrase: "{{ luks_passphrase }}"
         keysize: 512
         cipher: aes-xts-plain64
         hash: sha256
         pbkdf: argon2id
+        passphrase: "{{ luks_passphrase }}"
       register: luks_create
 
     - name: Open LUKS container
       community.crypto.luks_device:
         device: /dev/nvme0n1p8
         state: opened
-        passphrase: "{{ luks_passphrase }}"
         name: nvme_crypt
+        passphrase: "{{ luks_passphrase }}"
         persistent: yes
         allow_discards: yes
       when: luks_create.changed or not ansible_facts.luks.nvme_crypt.active
