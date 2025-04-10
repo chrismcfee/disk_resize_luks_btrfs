@@ -69,8 +69,8 @@
         cryptsetup luksUUID /dev/nvme0n1p4 || echo "NOT_FOUND"
 
         # Get nvme0n1p8 info (your LVM member)
-        echo "===== NVME0N1P8 ====="
-        cryptsetup luksUUID /dev/nvme0n1p8 || echo "NOT_FOUND"
+        #echo "===== NVME0N1P8 ====="
+        #cryptsetup luksUUID /dev/nvme0n1p8 || echo "NOT_FOUND"
       register: luks_info
       changed_when: false
 
@@ -89,8 +89,8 @@
         path: "{{ item }}"
       register: device_check
       with_items:
-        - /dev/sda3
-        - /dev/nvme0n1p8
+        - /dev/nvme0n1p4    # Change this from /dev/sda3
+        #- /dev/nvme0n1p8
 
     - name: Fail if devices don't exist
       fail:
@@ -105,12 +105,19 @@
         backup: yes
       when: nvme_p4_uuid is defined and nvme_p4_uuid != "NOT_FOUND"
 
+    - name: Check if TPM binding exists
+      shell: clevis luks list -d /dev/nvme0n1p4 | grep -q "tpm2"
+      register: tpm_check
+      ignore_errors: yes
+      changed_when: false
+
     - name: Bind LUKS to TPM
       shell: |
         clevis luks bind -f -d /dev/nvme0n1p4 tpm2 '{"pcr_bank":"sha256","pcr_ids":"0,1,2,3,4,5,7"}' <<< "{{ luks_passphrase }}"
       args:
         executable: /bin/bash
       no_log: true
+      when: tpm_check.rc != 0
 
     - name: Update initramfs
       command: update-initramfs -u -k all
