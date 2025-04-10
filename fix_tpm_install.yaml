@@ -26,6 +26,25 @@
         state: present
         update_cache: no
 
+    - name: Get system storage layout
+      shell: |
+        echo "=== PHYSICAL PARTITIONS ==="
+        lsblk -o NAME,TYPE,SIZE,FSTYPE,MOUNTPOINT
+        echo "=== LVM SETUP ==="
+        pvs
+        vgs
+        lvs
+        echo "=== CRYPTO SETUP ==="
+        dmsetup ls
+        echo "=== CURRENT MAPPINGS ==="
+        ls -l /dev/mapper/
+      register: storage_info
+      changed_when: false
+
+    - name: Show storage information
+      debug:
+        msg: "{{ storage_info.stdout_lines }}"
+
     - name: Configure cracklib
       shell: |
         mkdir -p /var/cache/cracklib
