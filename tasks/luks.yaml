@@ -1,30 +1,32 @@
-- name: Check if LUKS container exists
-  shell: |
-    cryptsetup isLuks /dev/nvme0n1p8 || true
-  args:
-    executable: /bin/bash
-  register: luks_check
-
-- name: Format LUKS container if unformatted
-  shell: |
-    echo -n "{{ luks_passphrase }}" | cryptsetup luksFormat /dev/nvme0n1p8 -
-  args:
-    executable: /bin/bash
-  when: luks_check.rc != 0
-
 - name: Configure LUKS container
   block:
+    # Phase 1: Manual LUKS check/format (optional)
+    - name: Check if LUKS container exists
+      shell: |
+        cryptsetup isLuks /dev/nvme0n1p8 || true
+      args:
+        executable: /bin/bash
+      register: luks_check
+
+    - name: Format LUKS container if unformatted
+      shell: |
+        echo -n "{{ luks_passphrase }}" | cryptsetup luksFormat /dev/nvme0n1p8 -
+      args:
+        executable: /bin/bash
+      when: luks_check.rc != 0
+
+    # Phase 2: Official community.crypto implementation
     - name: Ensure LUKS container exists (LUKS2)
       community.crypto.luks_device:
         device: /dev/nvme0n1p8
         state: present
         type: luks2
         label: nvme_crypt
+        passphrase: "{{ luks_passphrase }}"
         keysize: 512
         cipher: aes-xts-plain64
         hash: sha256
         pbkdf: argon2id
-        passphrase: "{{ luks_passphrase }}"
       register: luks_create
 
     - name: Open LUKS container
@@ -35,4 +37,6 @@
         passphrase: "{{ luks_passphrase }}"
         persistent: yes
         allow_discards: yes
-      when: luks_create.changed or not ansible_facts.luks.nvme_crypt.active
+      when: >-
+        luks_create.changed or
+        not (ansible_facts.luks | default({})).nvme_crypt.active
