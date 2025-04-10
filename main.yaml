@@ -1,0 +1,15 @@
+---
+- name: Setup partition and expand all
+  hosts: zplayers_prod
+  become: yes
+  #vars:
+    #d
+
+  tasks:
+    - include_tasks: tasks/partition.yaml
+    - include_tasks: tasks/luks.yaml
+   # - include_tasks: tasks/install_virtualbox.yml
+   # - include_tasks: tasks/prepare_resources.yml 
+   # - include_tasks: tasks/vbox_kernel_modules.yml
+   # - include_tasks: tasks/create_vm.yml
+   # - include_tasks: tasks/start_vm.yml
