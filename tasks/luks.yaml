@@ -1,5 +1,5 @@
 - name: Check LUKS container on /dev/nvme0n1p8
-  command: cryptsetup isLuks /dev/nvme0n1p8 || true 
+  command: cryptsetup isLuks /dev/nvme0n1p8 || true
   register: luks_check
 
 - name: Format LUKS container if unformatted
@@ -9,7 +9,7 @@
     executable: /bin/bash
   when: luks_check.rc != 0
 
-- name: Check if LUKS container is open (mapper exists)
+- name: Check if LUKS container is open
   stat:
     path: /dev/mapper/nvme_crypt
   register: luks_open_check
