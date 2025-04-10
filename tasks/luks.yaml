@@ -1,21 +1,10 @@
-- name: Format LUKS container if unformatted
+---
+- name: Format LUKS container if unformatted.
   shell: |
-    echo -n "{{ luks_passphrase }}" | sudo cryptsetup luksFormat /dev/nvme0n1p8 --type luks2
+    echo -n "{{ luks_passphrase }}" | sudo cryptsetup luksFormat /dev/nvme0n1p8 --type luks2 --key-size=512 --hash=sha256 --cipher=aes-xts-plain64 --pbkdf=argon2id --batch-mode --force-password 
   args:
     executable: /bin/bash
 
-- name: Open LUKS container
-  shell: echo -n "{{ luks_passphrase }}" | sudo cryptsetup open /dev/nvme0n1p8 nvme_crypt
-  args:
-    executable: /bin/bash
-
-- name: Verify LUKS container is open
-  shell: lsblk | grep -q nvme_crypt
-  register: luks_open_check
-  ignore_errors: true  # Prevent failure if container isn't open
-
-
-- name: Fail if LUKS container is not open
-  fail:
-    msg: "Failed to open LUKS container nvme_crypt!"
-  when: luks_open_check.rc != 0
+- name: Open LUKS container.
+  shell:
+    cmd="echo '{{ luks_passphrase }}' | sudo cryptsetup open /dev/nvme01-LG01
