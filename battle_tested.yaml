@@ -16,13 +16,29 @@
       args:
         executable: /bin/bash
 
-    # LUKS Handling (raw commands as in your script)
     - name: Setup LUKS container
-      shell: |
-        echo -n "{{ luks_passphrase }}" | cryptsetup luksFormat /dev/nvme0n1p8 -
-        echo -n "{{ luks_passphrase }}" | cryptsetup open /dev/nvme0n1p8 nvme0n1p8_crypt -
-      args:
-        executable: /bin/bash
+      block:
+        - name: Format LUKS partition
+          community.crypto.luks_device:
+            device: /dev/nvme0n1p8
+            state: present
+            passphrase: "{{ luks_passphrase }}"
+            type: luks2
+            cipher: aes-xts-plain64
+            keysize: 512
+            hash: sha256
+            pbkdf: argon2i
+            pbkdf_parameters:
+              time: 4        # Seconds (not milliseconds/iterations)
+              memory: 1048576  # KB (1GB = 1048576KB)
+              parallel: 4     # Thread count
+
+        - name: Open LUKS container
+          community.crypto.luks_device:
+            device: /dev/nvme0n1p8
+            state: opened
+            name: crypt_root
+            passphrase: "{{ luks_passphrase }}"
 
     # LVM Operations (raw commands)
     - name: Extend storage
@@ -30,7 +46,7 @@
         pvcreate /dev/mapper/nvme0n1p8_crypt
         vgextend VG0 /dev/mapper/nvme0n1p8_crypt
         lvextend -l +100%FREE /dev/VG0/LG0
-        resize2fs /dev/mapper/VG0-LG0
+        resize2fs /dev/mapper/VG0-LG0 || true
       args:
         executable: /bin/bash
 
@@ -39,6 +55,11 @@
       shell: update-initramfs -u -k all
       args:
         executable: /bin/bash
+
+    - name: Configure automatic unlock
+      lineinfile:
+        path: /etc/crypttab
+        line: "crypt_root UUID={{ ansible_devices.nvme0n1p8.luks.uuid }} none luks,discard,keyscript=/usr/bin/clevis-decrypt-tpm2"
 
     # Reboot handling
     - name: Reboot system
