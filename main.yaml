@@ -6,7 +6,7 @@
     - name: luks_passphrase
       prompt: "Enter LUKS passphrase"
       private: yes
-
+#try ansible-playbook main.yml -vvv --ask-become-pass
   tasks:
     # Step 1: Install required tools
     - name: Install required tools explicitly
