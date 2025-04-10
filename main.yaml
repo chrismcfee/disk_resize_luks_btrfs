@@ -31,48 +31,47 @@
 
     # Step 2: Partition Management
     - name: Configure partition
-      ansible.builtin.include_tasks:
-        file: tasks/partition.yaml
+      ansible.builtin.include_tasks: tasks/partition.yaml
 
-    # Step 3: Reboot if partition missing (last resort)
-    - name: Reboot if partition missing after creation.
-      reboot:
-        reboot_timeout: 600
-      when: not p8_check_post.stat.exists
+    # Step 3: Configure LUKS container
+    - name: Configure LUKS container
+      ansible.builtin.include_tasks: tasks/luks.yaml
 
-    # Step 4: Configure LUKS container
-    - name: Configure LUKS container.
-      ansible.builtin.include_tasks:
-        file: tasks/luks.yaml
+    # Step 4: PV/VG/LV Operations
+    - name: Check if PV exists on /dev/nvme0n1p8
+      command: pvs /dev/nvme0n1p8 --noheadings --quiet
+      register: pv_check
+      failed_when: false
 
-    # Step 5a: Create Physical Volume (PV)
-    - name: Create physical volume on /dev/nvme0n1p8.
+    - name: Create PV only if missing
       command: pvcreate /dev/nvme0n1p8
+      when: pv_check.rc != 0
 
-    # Step 5b: Extend Volume Group (VG)
-    - name: Extend VG0 with /dev/nvme0n1p8.
+    - name: Extend VG0 with /dev/nvme0n1p8
       command: vgextend VG0 /dev/nvme0n1p8
 
-    # Step 5c: Extend Logical Volume (LV)
-    - name: Extend logical volume LG0 to use all free space.
+    - name: Extend logical volume LG0
       command: lvextend -l +100%FREE /dev/VG0/LG0
 
-    # Step 6a: Resize Filesystem (ext4)
-    - name: Resize ext4 filesystem on LG0.
+    # Step 5: Filesystem Resize
+    - name: Get filesystem type of root
+      shell: df -T / | awk 'NR==2 {print $2}'
+      register: fs_type
+
+    - name: Resize ext4 filesystem
       command: resize2fs /dev/mapper/VG0-LG0
+      when: fs_type.stdout == "ext4"
 
-    # Step 6b (Optional): Resize Btrfs Filesystem (if applicable)
-    - name: Resize Btrfs filesystem on root.
+    - name: Resize Btrfs filesystem
       command: btrfs filesystem resize max /
-      when:
-        - ansible_facts.filesystem_type == "btrfs"
+      when: fs_type.stdout == "btrfs"
 
-    # Step 7a (Optional): Update Initramfs
-    - name: Update initramfs to persist changes.
+    # Step 6: Update initramfs
+    - name: Update initramfs
       command: update-initramfs -u -k all
 
-    # Step 7b (Optional): Create Systemd Service for LUKS Resize on Boot
-    - name: Create systemd service for LUKS resize on boot.
+    # Step 7: Systemd service for LUKS resize
+    - name: Create cryptresize service
       shell: |
         cat > /etc/systemd/system/cryptresize.service <<EOF
         [Unit]
@@ -90,35 +89,12 @@
       args:
         executable: /bin/bash
 
-    # Enable systemd service for LUKS resize on boot.
-    - name: Enable cryptresize service.
+    - name: Enable cryptresize service
       systemd:
         name: cryptresize.service
         enabled: true
+      when: ansible_facts.services['cryptresize.service'] is not defined
 
-    # Final Verification Steps
-    - name: Verify current state of root filesystem.
-      shell: df -h /
-      register: df_output
-
-    - name: Verify physical volumes.
-      shell: pvs --noheadings --output pv_name,vg_name,size,free --units m | column -t
-      register: pvs_output
-
-    - name: Verify volume groups.
-      shell: vgs --noheadings --output vg_name,size,free --units m | column -t
-      register: vgs_output
-
-    - name: Verify logical volumes.
-      shell: lvdisplay /dev/VG0/LG0 | grep Size | column -t
-      register: lvdisplay_output
-
-    # Display final verification results.
-    - name: Show final verification results.
-      debug:
-        msg:
-          - "Root Filesystem Usage:\n{{ df_output.stdout }}"
-          - "Physical Volumes:\n{{ pvs_output.stdout }}"
-          - "Volume Groups:\n{{ vgs_output.stdout }}"
-          - "Logical Volume Details:\n{{ lvdisplay_output.stdout }}"
-
+    # Final Verification
+    - name: Verify storage state
+      ansible.builtin.include_tasks: tasks/verify.yaml
