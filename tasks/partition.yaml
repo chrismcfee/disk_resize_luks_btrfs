@@ -4,9 +4,27 @@
     path: /dev/nvme0n1p8
   register: p8_check
 
-- name: Create partition if missing.
+- name: Debug partition existence.
+  debug:
+    msg: "Partition exists before creation? {{ p8_check.stat.exists }}"
+
+- name: Get free space information for /dev/nvme0n1.
   shell: |
-    parted --script /dev/nvme0n1 mkpart primary ext4 180GB 100%
+    parted /dev/nvme0n1 print free | awk '/Free Space/ {print $1, $2, $3}' | tail -n 1
+  register: free_space
+  changed_when: false
+  when: not p8_check.stat.exists
+
+- name: Debug free space information.
+  debug:
+    msg: "Free space on disk: {{ free_space.stdout }}"
+  when: not p8_check.stat.exists
+
+- name: Create partition using detected free space.
+  shell: |
+    start=$(echo "{{ free_space.stdout }}" | awk '{print $2}')
+    end=$(echo "{{ free_space.stdout }}" | awk '{print $3}')
+    parted --script /dev/nvme0n1 mkpart primary ext4 ${start} ${end}
     partprobe /dev/nvme0n1 && sleep 5 && lsblk | grep nvme0n1p8 || echo "Partition creation failed!"
   args:
     executable: /bin/bash
