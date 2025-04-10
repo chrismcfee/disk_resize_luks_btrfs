@@ -14,6 +14,13 @@
   shell: lvdisplay /dev/VG0/LG0 | grep Size | column -t
   register: lvdisplay_output
 
+- name: Verify LUKS UUID in crypttab
+  lineinfile:
+    path: /etc/crypttab
+    regexp: "^nvme_crypt"
+    line: "nvme_crypt UUID={{ luks_uuid.stdout }} none luks,discard"
+    state: present
+
 - name: Show verification results
   debug:
     msg:
