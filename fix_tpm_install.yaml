@@ -9,35 +9,6 @@
       private: yes
 
   tasks:
-    - name: Check encrypted partition details
-      shell: |
-        # First check if /dev/sda3 is a LUKS partition
-        if cryptsetup isLuks /dev/sda3; then
-          echo "LUKS_FOUND=yes"
-          # Get the mapped name if it exists
-          MAPPED_NAME=$(lsblk /dev/sda3 -ln -o NAME | grep crypt || echo "")
-          if [ -n "$MAPPED_NAME" ]; then
-            echo "MAPPED_NAME=$MAPPED_NAME"
-          fi
-          # Get the UUID
-          UUID=$(cryptsetup luksUUID /dev/sda3)
-          echo "UUID=$UUID"
-        else
-          echo "LUKS_FOUND=no"
-        fi
-
-        # Get nvme0n1p8 UUID too
-        if cryptsetup isLuks /dev/nvme0n1p8; then
-          NVME_UUID=$(cryptsetup luksUUID /dev/nvme0n1p8)
-          echo "NVME_UUID=$NVME_UUID"
-        fi
-      register: luks_info
-      changed_when: false
-
-    - name: Show what was found
-      debug:
-        msg: "{{ luks_info.stdout_lines }}"
-
     - name: Install required packages
       apt:
         name:
@@ -63,8 +34,13 @@
         executable: /bin/bash
 
     - name: Enable and start entropy services
-      shell: |
-        echo "[Explicitly] Enabling entropy explicitly." && systemctl start rng-tools haveged || true && systemctl enable rng-tools haveged || true
+      systemd:
+        name: "{{ item }}"
+        state: started
+        enabled: yes
+      with_items:
+        - rng-tools
+        - haveged
       ignore_errors: yes
 
     - name: Check encrypted partition details
@@ -83,7 +59,7 @@
       register: luks_info
       changed_when: false
 
-    - name: Show what was found
+    - name: Show detected LUKS devices
       debug:
         msg: "{{ luks_info.stdout_lines }}"
 
@@ -100,11 +76,14 @@
           nvme0n1p8_crypt UUID={{ nvme_uuid }} none luks
         backup: yes
 
-    - name: Bind LUKS to TPM for sda3
+    - name: Bind LUKS partitions to TPM
       shell: |
-        clevis luks bind -f -d /dev/sda3 tpm2 '{"pcr_bank":"sha256","pcr_ids":"0,1,2,3,4,5,7"}' <<< "{{ luks_passphrase }}"
+        clevis luks bind -f -d {{ item }} tpm2 '{"pcr_bank":"sha256","pcr_ids":"0,1,2,3,4,5,7"}' <<< "{{ luks_passphrase }}"
       args:
         executable: /bin/bash
+      with_items:
+        - /dev/sda3
+        - /dev/nvme0n1p8
 
     - name: Update initramfs
       command: update-initramfs -u -k all
@@ -114,7 +93,9 @@
         msg: |
           ===========================================
           ✅ TPM/LUKS Configuration Complete
-          ✅ Crypttab configured with correct UUIDs
+          ✅ Crypttab configured with correct UUIDs:
+             - sda3_crypt: {{ sda3_uuid }}
+             - nvme0n1p8_crypt: {{ nvme_uuid }}
           ✅ Both partitions bound to TPM
           ✅ Initramfs updated
 
