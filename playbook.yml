@@ -1,6 +1,6 @@
 ---
-- name: Reliable LUKS/LVM Management Playbook
-  hosts: zplayers_prod
+- name: LUKS/LVM/TPM Automated Configuration
+  hosts: all
   become: true
   vars_prompt:
     - name: luks_passphrase
@@ -33,97 +33,100 @@
         path: /dev/nvme0n1p8
       register: partition_check
 
-    - name: Safely create partition on encrypted disk
+    - name: Prepare disk partition
       block:
-        - name: Check for active mounts
-          shell: lsblk -nl /dev/nvme0n1 | awk '{print $7}' | grep -v 'MOUNTPOINT'
-          register: mounts
-          changed_when: false
-    
         - name: Unmount any active partitions
           mount:
             path: "{{ item }}"
             state: absent
-          with_items: "{{ mounts.stdout_lines }}"
-          when: mounts.stdout != ''
-    
-        - name: Destroy existing partition table (DANGEROUS)
-          community.general.parted:
-            device: /dev/nvme0n1
-            label: gpt
-            state: present
-          when: partition_check.stat.exists
-    
-        - name: Create LUKS partition with proper alignment
+          with_items: "{{ ansible_mounts | map(attribute='mount') | list }}"
+          when: "'/dev/nvme0n1' in ansible_mounts | map(attribute='device') | list"
+
+        - name: Create LUKS partition
           community.general.parted:
             device: /dev/nvme0n1
             number: 8
             state: present
-            flags: [ boot ]
-            part_start: "194GB"  # Adjusted for 1MB alignment
+            part_start: "1MiB"
             part_end: "100%"
+            flags: [ luks ]
             align: optimal
+          when: not partition_check.stat.exists
+
       rescue:
-        - name: Handle partition creation failure
+        - name: Handle partition errors
           debug:
-            msg: "Critical error occurred. Manual intervention required."
+            msg: "Partitioning failed! Ensure /dev/nvme0n1 is not in use."
 
-    - name: Verify LUKS status
-      command: cryptsetup isLuks /dev/nvme0n1p8
-      register: luks_check
-      failed_when: false
+    - name: Configure LUKS encryption
+      block:
+        - name: Check LUKS status
+          command: cryptsetup isLuks /dev/nvme0n1p8
+          register: luks_check
+          failed_when: false
 
-    - name: Check if LUKS container exists
-      community.crypto.luks_device:
-        device: /dev/nvme0n1p8
-        state: present
-      register: luks_status
-      changed_when: false
-      check_mode: true
-    
-    - name: Remove existing LUKS container if present
-      community.crypto.luks_device:
-        device: /dev/nvme0n1p8
-        state: absent
-      when: luks_status.luks_exists
-    
-    - name: Create LUKS container (idempotent)
-      community.crypto.luks_device:
-        device: /dev/nvme0n1p8
-        state: present
-        passphrase: "{{ luks_passphrase }}"
-        type: luks2
+        - name: Create LUKS container
+          community.crypto.luks_device:
+            device: /dev/nvme0n1p8
+            state: present
+            passphrase: "{{ luks_passphrase }}"
+            type: luks2
+            cipher: aes-xts-plain64
+            key_size: 512
+            hash: sha256
+          when: luks_check.rc != 0
 
-    - name: Open LUKS container
-      community.crypto.luks_device:
-        device: /dev/nvme0n1p8
-        state: opened
-        name: nvme0n1p8_crypt
-        passphrase: "{{ luks_passphrase }}"
+        - name: Open LUKS container
+          community.crypto.luks_device:
+            device: /dev/nvme0n1p8
+            state: opened
+            name: nvme_crypt
+            passphrase: "{{ luks_passphrase }}"
 
-    - name: Initialize physical volume
-      community.general.lvg:
-        vg: VG0
-        pvs: /dev/mapper/nvme0n1p8_crypt
-        pesize: 4
+    - name: Configure LVM
+      block:
+        - name: Create physical volume
+          community.general.parted:
+            device: /dev/mapper/nvme_crypt
+            state: present
 
-    - name: Extend logical volume
-      community.general.lvol:
-        vg: VG0
-        lv: LG0
-        size: +100%FREE
-        resizefs: yes
+        - name: Create volume group
+          community.general.lvg:
+            vg: vg_root
+            pvs: /dev/mapper/nvme_crypt
 
-    - name: Update initramfs
-      command: update-initramfs -u -k all
+        - name: Extend logical volume
+          community.general.lvol:
+            vg: vg_root
+            lv: lv_root
+            size: +100%FREE
+            resizefs: yes
 
-    - name: Bind LUKS to TPM (idempotent)
-      command: >
-        clevis luks bind -d /dev/nvme0n1p8 tpm2 '{"pcr_bank":"sha256","pcr_ids":"0,7"}'
-      args:
-        stdin: "{{ luks_passphrase }}"
-      when: "'tpm2' not in (clevis luks list -d /dev/nvme0n1p8 | grep tpm2)"
+    - name: Configure TPM auto-unlock
+      block:
+        - name: Check existing TPM binding
+          command: clevis luks list -d /dev/nvme0n1p8
+          register: tpm_check
+          changed_when: false
+          ignore_errors: true
 
-    - name: Final reboot
-      reboot:
-        reboot_timeout: 600
+        - name: Bind LUKS to TPM
+          command: >
+            clevis luks bind -d /dev/nvme0n1p8 tpm2 '{"pcr_bank":"sha256","pcr_ids":"0,7"}'
+          args:
+            stdin: "{{ luks_passphrase }}"
+          when: "'tpm2' not in tpm_check.stdout"
+
+    - name: Finalize configuration
+      block:
+        - name: Update crypttab
+          lineinfile:
+            path: /etc/crypttab
+            line: "nvme_crypt UUID={{ ansible_devices.nvme0n1p8.luks.uuid }} none luks,discard,keyscript=/usr/bin/clevis-decrypt-tpm2"
+
+        - name: Update initramfs
+          command: update-initramfs -u -k all
+
+        - name: Reboot system
+          reboot:
+            reboot_timeout: 600
