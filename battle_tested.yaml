@@ -45,7 +45,7 @@
 
     # Step 3: LUKS handling (check and create if missing)
     - name: Check if LUKS container exists on /dev/nvme0n1p8
-      command: cryptsetup isLuks /dev/nvme0n1p8
+      command: sudo cryptsetup isLuks /dev/nvme0n1p8
       register: luks_check
       failed_when: false
       changed_when: false
@@ -66,7 +66,7 @@
 
     - name: Open LUKS container if not already open
       shell: |
-        echo -n "{{ luks_passphrase }}" | cryptsetup open /dev/nvme0n1p8 nvme_crypt -
+        echo -n "{{ luks_passphrase }}" | sudo cryptsetup open /dev/nvme0n1p8 nvme_crypt -
       args:
         executable: /bin/bash
       when: not luks_open_check.stat.exists
