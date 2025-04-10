@@ -74,7 +74,24 @@
       register: luks_info
       changed_when: false
 
-    # Later in your crypttab configuration:
+    - name: Show raw output
+      debug:
+        msg: "{{ luks_info.stdout_lines }}"
+
+    - name: Check if devices exist
+      stat:
+        path: "{{ item }}"
+      register: device_check
+      with_items:
+        - /dev/sda3
+        - /dev/nvme0n1p8
+
+    - name: Fail if devices don't exist
+      fail:
+        msg: "Required devices not found"
+      when: not device_check.results[0].stat.exists or not device_check.results[1].stat.exists
+
+# Later in your crypttab configuration:
     - name: Configure crypttab with correct entries
       copy:
         dest: /etc/crypttab
