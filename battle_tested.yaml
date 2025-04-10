@@ -1,0 +1,46 @@
+---
+- name: Reliable LUKS/LVM Resize
+  hosts: all
+  become: true
+  vars_prompt:
+    - name: luks_passphrase
+      prompt: "Enter LUKS passphrase"
+      private: yes
+
+  tasks:
+    # Partitioning (exact copy of your bash logic)
+    - name: Create partition explicitly
+      shell: |
+        parted --script /dev/nvme0n1 mkpart primary 180GB 100%
+        partprobe /dev/nvme0n1
+      args:
+        executable: /bin/bash
+
+    # LUKS Handling (raw commands as in your script)
+    - name: Setup LUKS container
+      shell: |
+        echo -n "{{ luks_passphrase }}" | cryptsetup luksFormat /dev/nvme0n1p8 -
+        echo -n "{{ luks_passphrase }}" | cryptsetup open /dev/nvme0n1p8 nvme0n1p8_crypt -
+      args:
+        executable: /bin/bash
+
+    # LVM Operations (raw commands)
+    - name: Extend storage
+      shell: |
+        pvcreate /dev/mapper/nvme0n1p8_crypt
+        vgextend VG0 /dev/mapper/nvme0n1p8_crypt
+        lvextend -l +100%FREE /dev/VG0/LG0
+        resize2fs /dev/mapper/VG0-LG0
+      args:
+        executable: /bin/bash
+
+    # Initramfs update
+    - name: Update initramfs
+      shell: update-initramfs -u -k all
+      args:
+        executable: /bin/bash
+
+    # Reboot handling
+    - name: Reboot system
+      reboot:
+        reboot_timeout: 600
