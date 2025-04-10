@@ -8,38 +8,38 @@
   debug:
     msg: "Partition exists before creation? {{ p8_check.stat.exists }}"
 
-- name: Get free space information for /dev/nvme0n1.
+- name: Get free space information for /dev/nvme0n1
   shell: |
-    parted /dev/nvme0n1 print free | awk '/Free Space/ {print $1, $2, $3}' | tail -n 1
+    parted /dev/nvme0n1 unit GB print free | awk -F '[^0-9.]+' '/Free Space/ {print $2, $3}' | tail -n 1
   register: free_space
   changed_when: false
   when: not p8_check.stat.exists
 
-- name: Debug free space information.
+- name: Debug free space information
   debug:
-    msg: "Free space on disk: {{ free_space.stdout }}"
+    msg: "Free space boundaries: {{ free_space.stdout }}"
   when: not p8_check.stat.exists
 
-- name: Create partition using detected free space.
+- name: Create partition using detected free space
   shell: |
-    start=$(echo "{{ free_space.stdout }}" | awk '{print $2}')
-    end=$(echo "{{ free_space.stdout }}" | awk '{print $3}')
-    parted --script /dev/nvme0n1 mkpart primary ext4 ${start} ${end}
+    start=$(echo "{{ free_space.stdout }}" | awk '{print $1}')
+    end=$(echo "{{ free_space.stdout }}" | awk '{print $2}')
+    parted --script /dev/nvme0n1 mkpart primary ext4 ${start}GB ${end}GB
     partprobe /dev/nvme0n1 && sleep 5 && lsblk | grep nvme0n1p8 || echo "Partition creation failed!"
   args:
     executable: /bin/bash
   when: not p8_check.stat.exists
 
-- name: Verify partition existence post-creation.
+- name: Verify partition existence post-creation
   stat:
     path: /dev/nvme0n1p8
   register: p8_check_post
 
-- name: Fail if partition not created successfully.
+- name: Fail if partition not created successfully
   fail:
     msg: "Partition /dev/nvme0n1p8 was not created successfully!"
-  when:
-    not p8_check_post.stat.exists
+  when: not p8_check_post.stat.exists
+
 
 - name: Reboot if partition missing post-verification.
   reboot:
