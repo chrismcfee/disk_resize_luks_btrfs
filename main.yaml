@@ -28,8 +28,14 @@
         state: present
         update_cache: no
 
-    - name: Handle partition setup
-      ansible.builtin.include_tasks: tasks/partition.yaml
+    - name: Configure part
+      ansible.builtin.include_tasks:
+        file: tasks/partition.yaml
+        apply:
+          tags: part
+      tags: 
+        - part
+        - always
 
     - name: Reboot if partition missing
       reboot:
