@@ -5,14 +5,15 @@
     executable: /bin/bash
 
 - name: Open LUKS container
-  shell: |
-    echo -n "{{ luks_passphrase }}" | cryptsetup open /dev/nvme0n1p8 nvme_crypt
+  shell: echo -n "{{ luks_passphrase }}" | cryptsetup open /dev/nvme0n1p8 nvme_crypt
   args:
     executable: /bin/bash
 
 - name: Verify LUKS container is open
-  shell: lsblk | grep nvme_crypt
+  shell: lsblk | grep -q nvme_crypt
   register: luks_open_check
+  ignore_errors: true  # Prevent failure if container isn't open
+
 
 - name: Fail if LUKS container is not open
   fail:
