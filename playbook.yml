@@ -73,14 +73,26 @@
       register: luks_check
       failed_when: false
 
-    - name: Format LUKS container (idempotent)
+    - name: Check if LUKS container exists
+      community.crypto.luks_device:
+        device: /dev/nvme0n1p8
+        state: present
+      register: luks_status
+      changed_when: false
+      check_mode: true
+    
+    - name: Remove existing LUKS container if present
+      community.crypto.luks_device:
+        device: /dev/nvme0n1p8
+        state: absent
+      when: luks_status.luks_exists
+    
+    - name: Create LUKS container (idempotent)
       community.crypto.luks_device:
         device: /dev/nvme0n1p8
         state: present
         passphrase: "{{ luks_passphrase }}"
-        force: yes
         type: luks2
-      when: luks_check.rc != 0
 
     - name: Open LUKS container
       community.crypto.luks_device:
