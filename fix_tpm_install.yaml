@@ -74,6 +74,12 @@
       register: luks_info
       changed_when: false
 
+
+    - name: Extract UUID
+      set_fact:
+        nvme_p4_uuid: "{{ luks_info.stdout_lines[1] }}"
+      when: luks_info.stdout_lines[1] != "NOT_FOUND"
+
     - name: Show raw output
       debug:
         msg: "{{ luks_info.stdout_lines }}"
@@ -91,14 +97,13 @@
         msg: "Required devices not found"
       when: not device_check.results[0].stat.exists or not device_check.results[1].stat.exists
 
-# Later in your crypttab configuration:
     - name: Configure crypttab with correct entries
       copy:
         dest: /etc/crypttab
         content: |
-          sda3_crypt UUID={{ luks_info.stdout_lines[1] }} none luks,discard
+          sda3_crypt UUID={{ nvme_p4_uuid }} none luks,discard,keyscript=/usr/bin/clevis-decrypt-tpm2
         backup: yes
-      when: luks_info.stdout_lines[1] != "NOT_FOUND"
+      when: nvme_p4_uuid is defined and nvme_p4_uuid != "NOT_FOUND"
 
     - name: Bind LUKS to TPM
       shell: |
@@ -115,11 +120,11 @@
         msg: |
           ===========================================
           ✅ TPM/LUKS Configuration Complete
-          ✅ Crypttab configured with correct UUIDs:
-             - sda3_crypt: {{ sda3_uuid }}
-             - nvme0n1p8_crypt: {{ nvme_uuid }}
-          ✅ Both partitions bound to TPM
+          ✅ Crypttab configured with correct UUID:
+             - sda3_crypt: {{ nvme_p4_uuid }}
+          ✅ Root partition bound to TPM
           ✅ Initramfs updated
 
           Ready for reboot!
           ===========================================
+      when: nvme_p4_uuid is defined
