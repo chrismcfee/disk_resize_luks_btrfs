@@ -2,7 +2,7 @@
 - name: Reliable LUKS/LVM Resize
   hosts: zplayers_prod
   become: true
-  vars_prompt:
+  vars_prompt: #do a flip!
     - name: luks_passphrase
       prompt: "Enter LUKS passphrase"
       private: yes
