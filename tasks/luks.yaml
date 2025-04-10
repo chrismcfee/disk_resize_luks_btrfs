@@ -1,10 +1,10 @@
 - name: Check LUKS container on /dev/nvme0n1p8
-  command: cryptsetup isLuks /dev/nvme0n1p8 || true
+  command: sudo cryptsetup isLuks /dev/nvme0n1p8 || true
   register: luks_check
 
 - name: Format LUKS container if unformatted
   shell: |
-    echo -n "{{ luks_passphrase }}" | cryptsetup luksFormat /dev/nvme0n1p8 -
+    echo -n "{{ luks_passphrase }}" | sudo cryptsetup luksFormat /dev/nvme0n1p8 -
   args:
     executable: /bin/bash
   when: luks_check.rc != 0
@@ -16,7 +16,7 @@
 
 - name: Open LUKS container if closed
   shell: |
-    echo -n "{{ luks_passphrase }}" | cryptsetup open /dev/nvme0n1p8 nvme_crypt -
+    echo -n "{{ luks_passphrase }}" | sudo cryptsetup open /dev/nvme0n1p8 nvme_crypt -
   args:
     executable: /bin/bash
   when: not luks_open_check.stat.exists
