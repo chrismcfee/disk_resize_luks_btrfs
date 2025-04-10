@@ -65,13 +65,9 @@
         name: nvme0n1p8_crypt
         passphrase: "{{ luks_passphrase }}"
 
-    - name: Extend physical volume
-      lvol:
-        vg: VG0
-        pv: /dev/mapper/nvme0n1p8_crypt
-        state: present
     - name: run this
       shell: |
+        sudo pvcreate /dev/nvme0n1p8
         sudo vgextend VG0 /dev/nvme0n1p8
         
     - name: Update initramfs
