@@ -121,7 +121,7 @@
       copy:
         dest: /etc/crypttab
         content: |
-          sda3_crypt UUID={{ nvme_p4_uuid }} /etc/luks-keys/sda3_crypt.key luks,discard,keyscript=/usr/bin/clevis-decrypt-tpm2
+          sda3_crypt UUID={{ nvme_p4_uuid }} none luks,discard,keyscript=/usr/bin/clevis-decrypt-tpm2
           nvme0n1p8_crypt UUID={{ nvme_uuid }} /etc/luks-keys/nvme0n1p8.key luks
         backup: yes
       when: nvme_p4_uuid is defined and nvme_p4_uuid != "NOT_FOUND"
@@ -140,6 +140,25 @@
       no_log: true
       when: tpm_check.rc != 0
 
+    - name: Enable Clevis LUKS askpass service
+      systemd:
+        name: "{{ item }}"
+        enabled: yes
+      with_items:
+        - clevis-luks-askpass.path
+      ignore_errors: yes
+
+    - name: Ensure TPM kernel modules are in initramfs
+      lineinfile:
+        path: /etc/initramfs-tools/modules
+        line: "{{ item }}"
+        create: yes
+      with_items:
+        - "tpm"
+        - "tpm_tis"
+        - "tpm_crb"
+        - "tpm_tis_core"
+
     - name: Update initramfs
       command: update-initramfs -u -k all
 
@@ -151,7 +170,7 @@
           ✅ Crypttab configured with correct UUID:
              - sda3_crypt: {{ nvme_p4_uuid }}
           ✅ Root partition bound to TPM
-          ✅ Initramfs updated
+          ✅ Initramfs updated with TPM modules
 
           Ready for reboot!
           ===========================================
